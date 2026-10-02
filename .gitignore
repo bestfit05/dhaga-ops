@@ -18,3 +18,4 @@ build/
 FDE_Academy_Tech_Track_Mini_Project_1_*.pdf
 .vercel
 .env*
+!.env.example

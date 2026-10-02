@@ -37,11 +37,17 @@ Open the local URL printed by Streamlit. Choose **Product listings** to load the
 
 The suite covers color and size normalization, the 50-row processing target, malformed CSV rows, missing listing fields, unsupported fabric claims, Hinglish routing, phone lookup, all sample carriers, missing dates, date mismatches, and approval rules.
 
-## Optional Gemini mode
+## Optional Gemini assistance
 
-Create a local `.env` file and set `MODEL_MODE=live` and `GEMINI_API_KEY`. The default fast model handles extraction and factual review; a separate creative model drafts listing copy and CX replies. You can override model names with `GEMINI_FAST_MODEL` and `GEMINI_CREATIVE_MODEL`.
+Gemini assistance is optional. The app makes no model calls in its default `demo` mode. To enable live calls locally, copy `.env.example` to `.env`, then set `MODEL_MODE=live` and add a Google Gemini API key as `GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/api-keys). The free-demo defaults use `gemini-3.1-flash-lite` for extraction, copy drafting, and checks; free-tier quotas and rate limits apply.
 
-Demo mode is the default and makes no external model calls. Do not put keys in source code or commit `.env`.
+Live assistance is used for unfamiliar color suggestions, product-attribute normalization, listing copy and its audit, customer-message intent parsing, reply drafting, and the reply audit. These are bounded model requests in a Python workflow, not an autonomous agent or a model trained on Dhaga data. Deterministic checks and human approval remain in place.
+
+The Gemini free tier may use submitted prompts and responses to improve Google products. Live prompts can include uploaded supplier fields or customer-message text and identifiers, so use only the synthetic examples for a free-tier demo. Paid Gemini API service has different data-use terms. See [Gemini pricing and data-use details](https://ai.google.dev/gemini-api/docs/pricing).
+
+This project calls Google's Gemini API directly. `OPENROUTER_API_KEY` is not read by this code. Demo mode is the default, so the server still starts without a model key; if live mode is selected without a key, the UI explains that Gemini is unavailable. Do not put keys in source code or commit `.env`.
+
+For Vercel, set `MODEL_MODE=live` and `GEMINI_API_KEY` in the project's encrypted Environment Variables, then redeploy. Keep the key out of GitHub and browser-side code.
 
 ## Database and deployment
 

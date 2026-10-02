@@ -21,13 +21,13 @@ The prompt chain is normalization → copy → audit for catalog rows. CX routin
 
 ## Model configuration
 
-- Fast: `gemini-3.1-flash-lite` for extraction, routing, color suggestions, and evaluation at temperature 0.0–0.1.
-- Creative: `gemini-3.1-pro-preview` for listing copy at 0.7 and CX replies at 0.4.
+- Fast and creative demo roles both default to `gemini-3.1-flash-lite`; the same model handles extraction, routing, copy drafting, and evaluation at their configured temperatures.
+- Gemini's published free tier currently lists `gemini-3.1-flash-lite` as free of charge. Quotas and rate limits apply, and Google marks free-tier prompts and responses as usable to improve its products. Use synthetic demo data only. Review [current pricing and data-use terms](https://ai.google.dev/gemini-api/docs/pricing) before enabling it with real customer or supplier information.
 - The response schema is validated with Pydantic after each model boundary. Model IDs are configurable because availability and pricing change.
 
 ## Cost line for planning
 
-This is a planning estimate for the standard paid tier, not a measured bill. It uses assumed token counts because no provider key or real model usage is configured yet. The estimate uses the current listed rates of $0.25 per million fast-model input tokens and $1.50 per million fast-model output tokens, plus $2 per million Pro input tokens and $12 per million Pro output tokens for prompts up to 200k tokens. The provider may count reasoning tokens as output. See [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing).
+This is a planning estimate for a separate standard paid configuration, not a measured bill or the free demo default. It uses assumed token counts because no provider key or real model usage is configured yet. The estimate uses the current listed rates of $0.25 per million fast-model input tokens and $1.50 per million fast-model output tokens, plus $2 per million Pro input tokens and $12 per million Pro output tokens for prompts up to 200k tokens. The provider may count reasoning tokens as output. See [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing).
 
 | Run | Assumed tokens per run | Estimated cost / run | Dhaga volume | Estimated weekly model cost |
 |---|---|---:|---:|---:|

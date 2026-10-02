@@ -212,7 +212,7 @@ def _catalog_workspace() -> None:
         st.caption("Draft rows are saved to the staging database. Approval is recorded separately.")
     else:
         st.warning("Database is not connected. This batch is only in this browser session and approvals are disabled.")
-    if settings.model_mode != "live" or not settings.gemini_api_key:
+    if not settings.live_models_enabled:
         st.info("Example mode is on. Sample products and local copy templates are used; no AI service is called.")
     if review:
         st.caption(f"{review} product(s) need a color choice or another review. Open a row marked ‘Needs review’ to continue.")
@@ -683,8 +683,11 @@ if not settings.app_password:
     st.warning("No shared password is configured. Set DHAGA_APP_PASSWORD before sharing a public deployment.")
 if settings.live_models_enabled:
     st.caption(f"Live model mode · extraction/evaluation: {settings.gemini_fast_model} · copy: {settings.gemini_creative_model}")
+    st.warning("Gemini live mode sends the current product or customer-message context to Google. Use synthetic data for free-tier demos.")
 else:
     st.caption("Demo model mode · local rules and template drafts are active")
+    if settings.model_mode == "live" and not settings.gemini_api_key:
+        st.warning("Gemini live mode was selected, but GEMINI_API_KEY is missing. Add a key to enable live model calls; example logic is active for now.")
 
 workspace = st.sidebar.radio("Choose a task", ["Overview", "Product listings", "Customer messages", "Approved work"], key="workspace")
 st.sidebar.caption("Example mode uses sample orders and policies. Confirm all policies with Dhaga before customer use.")
