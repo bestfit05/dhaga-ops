@@ -12,7 +12,7 @@ from dhaga_os.config import get_settings
 
 T = TypeVar("T", bound=BaseModel)
 LOGGER = logging.getLogger(__name__)
-REQUEST_TIMEOUT_MS = 20_000
+REQUEST_TIMEOUT_MS = 40_000
 FALLBACK_NOTICE = " Local checks or example text are being used instead."
 PROVIDER_STATUSES = {
     "INVALID_ARGUMENT", "UNAUTHENTICATED", "PERMISSION_DENIED", "NOT_FOUND",
@@ -132,14 +132,20 @@ def generate_json(
     """Call Gemini with a JSON Schema boundary and validate it again with Pydantic."""
     try:
         client = _client()
+        config = {
+            "response_mime_type": "application/json",
+            "response_json_schema": response_model.model_json_schema(),
+            "temperature": temperature,
+        }
+        # Google's 3.8 Flash guide recommends LOW for chat and writing drafts.
+        # Its default is MEDIUM; MINIMAL is unsupported. Custom model overrides
+        # keep their own defaults instead of receiving an incompatible option.
+        if model.removeprefix("models/") == "gemini-3.8-flash":
+            config["thinking_config"] = {"thinking_level": "LOW"}
         response = client.models.generate_content(
             model=model,
             contents=prompt,
-            config={
-                "response_mime_type": "application/json",
-                "response_json_schema": response_model.model_json_schema(),
-                "temperature": temperature,
-            },
+            config=config,
         )
         if not response.text:
             _report_failure(model, {"category": "empty_response", "provider_code": None})

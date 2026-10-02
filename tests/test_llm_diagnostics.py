@@ -94,7 +94,31 @@ class ModelDiagnosticsTests(unittest.TestCase):
         with patch.dict(os.environ, {"MODEL_MODE": "live", "GEMINI_API_KEY": "test"}), patch("google.genai.Client") as client:
             _client()
         self.assertEqual(client.call_args.kwargs["http_options"], {"timeout": REQUEST_TIMEOUT_MS, "retry_options": {"attempts": 1}})
-        self.assertLessEqual(REQUEST_TIMEOUT_MS, 30_000)
+        self.assertEqual(REQUEST_TIMEOUT_MS, 40_000)
+
+    def test_flash_38_low_thinking_keeps_structured_response_boundary(self):
+        for model in ("gemini-3.8-flash", "models/gemini-3.8-flash"):
+            model_api = Mock()
+            model_api.generate_content.return_value = SimpleNamespace(text='{"answer": "Valid answer"}')
+            with self.subTest(model=model), patch("dhaga_os.llm._client", return_value=SimpleNamespace(models=model_api)):
+                response = generate_json(model=model, prompt="Synthetic prompt", response_model=Response, temperature=0.1)
+            config = model_api.generate_content.call_args.kwargs["config"]
+            self.assertEqual(config["thinking_config"], {"thinking_level": "LOW"})
+            self.assertEqual(config["response_mime_type"], "application/json")
+            self.assertEqual(config["response_json_schema"], Response.model_json_schema())
+            self.assertEqual(config["temperature"], 0.1)
+            self.assertNotIn("max_output_tokens", config)
+            self.assertEqual(response.answer, "Valid answer")
+
+    def test_other_model_overrides_keep_their_own_thinking_defaults(self):
+        for model in ("gemini-3.5-flash-lite", "gemini-2.5-flash", "custom-model", "gemini-3.8-flash-preview"):
+            model_api = Mock()
+            model_api.generate_content.return_value = SimpleNamespace(text='{"answer": "Valid answer"}')
+            with self.subTest(model=model), patch("dhaga_os.llm._client", return_value=SimpleNamespace(models=model_api)):
+                generate_json(model=model, prompt="Synthetic prompt", response_model=Response, temperature=0.0)
+            config = model_api.generate_content.call_args.kwargs["config"]
+            self.assertNotIn("thinking_config", config)
+            self.assertEqual(config["response_json_schema"], Response.model_json_schema())
 
     def test_valid_structured_output_still_returns_the_requested_model(self):
         response = self.call_model(text='{"answer": "Valid answer"}')
