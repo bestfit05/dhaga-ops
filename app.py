@@ -39,6 +39,7 @@ from dhaga_os.db import (
 from dhaga_os.exports import csv_export_bytes as _csv_export, safe_spreadsheet_frame
 from dhaga_os.models import MasterColor
 from dhaga_os.navigation import WORKSPACES, WORKSPACE_KEY, prepare_workspace_widget, request_workspace
+from dhaga_os.queues import QUEUE_LABELS, case_matches_queue, case_risk_reasons
 
 st.set_page_config(page_title="Dhaga Ops · Team workspace", page_icon="🧵", layout="wide", initial_sidebar_state="auto")
 st.markdown("<style>" + (Path(__file__).parent / "assets/dhaga.css").read_text() + "</style>", unsafe_allow_html=True)
@@ -49,30 +50,7 @@ COMMON_FABRICS = (
     "Cotton", "Rayon", "Viscose", "Polyester", "Silk", "Linen", "Georgette", "Chiffon",
     "Chanderi", "Satin", "Velvet", "Wool", "Nylon", "Modal", "Poplin", "Other — enter below",
 )
-
-
-def _authenticated() -> bool:
-    if not settings.app_password:
-        return True
-    if st.session_state.get("authenticated"):
-        return True
-    st.markdown('<div class="eyebrow">DHAGA & CO · TEAM WORKSPACE</div><h1 class="page-title">Welcome back.</h1><p class="page-description">Prepare product listings and customer replies in one place.</p>', unsafe_allow_html=True)
-    st.caption("Enter the team password to open your workspace.")
-    with st.form("login"):
-        candidate = st.text_input("Team password", type="password", help="Use the password shared by your Dhaga Ops administrator.")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted:
-        import hmac
-
-        if hmac.compare_digest(candidate, settings.app_password):
-            st.session_state.authenticated = True
-            st.rerun()
-        st.error("That password did not match. Check it and try again.")
-    return False
-
-
-if not _authenticated():
-    st.stop()
+FRESHDESK_DEMO_URL = "https://www.freshworks.com/freshdesk/"
 
 database_ready = False
 database_error = ""
@@ -126,7 +104,34 @@ def _show_table(data: pd.DataFrame, **options: Any) -> None:
 
 
 def _actor() -> str:
-    return st.session_state.get("operator_name", "").strip() or "operator"
+    return "MVP team"
+
+
+def _open_customer_queue(queue: str) -> None:
+    st.session_state.pending_customer_queue = queue
+    st.session_state.pop("support_case", None)
+    st.session_state.pop("saved_customer_message", None)
+    st.session_state.pop("cx_queue_search", None)
+    _switch_workspace("Customer messages")
+
+
+def _open_product_queue() -> None:
+    st.session_state.pending_catalog_queue = True
+    _switch_workspace("Product listings")
+
+
+def _reset_customer_queue_selection() -> None:
+    st.session_state.pop("support_case", None)
+    st.session_state.pop("saved_customer_message", None)
+
+
+def _freshdesk_handoff() -> None:
+    st.link_button("1-click reply to CX", FRESHDESK_DEMO_URL, type="primary", width="stretch")
+    st.caption("Demo handoff: opens Freshdesk. Copy the approved reply above; this app does not send it.")
+
+
+def _queue_metric(label: str, value: int, key: str, callback: Any, args: tuple = ()) -> None:
+    st.button(f"**{value:,}** {label} →", key="overview-metric-" + key, on_click=callback, args=args, width="stretch")
 
 
 def _flash(message: str) -> None:
@@ -176,6 +181,15 @@ def _catalog_workspace() -> None:
             st.session_state.pop(f"{field}-{pending_copy['row_key']}", None)
     _page_header("CATALOG WORKSPACE", "Make every product ready.", "Check supplier details, review the listing text, and approve one product at a time.")
     records = st.session_state.get("catalog_batch", [])
+    if st.session_state.pop("pending_catalog_queue", False) and database_ready:
+        try:
+            records = unapproved_listing_rows(limit=None)
+            st.session_state.catalog_batch = records
+            st.session_state.catalog_saved = True
+            for key in ("catalog_filter", "catalog_search", "review_product"):
+                st.session_state.pop(key, None)
+        except Exception as exc:
+            st.warning(_friendly_exception(exc, "Opening pending product reviews"))
     _steps(["Load a supplier sheet", "Review each product", "Approve & download"], 1 if records else 0)
     with st.expander("Add a supplier sheet or try sample products", expanded=not records):
         left, right = st.columns([2, 1], gap="large")
@@ -516,14 +530,37 @@ def _load_example(message: str) -> None:
 
 def _cx_workspace() -> None:
     _page_header("CUSTOMER CARE", "Give every customer a clear reply.", "Paste a message, check the order facts, and prepare a reply for your team.")
-    _steps(["Add the message", "Check facts & edit reply", "Save for your team"], 1 if st.session_state.get("support_case") else 0)
+    current_status = (st.session_state.get("support_case") or {}).get("status")
+    _steps(["Add the message", "Check facts & edit reply", "Save for your team"], 2 if current_status == "approved_for_handoff" else 1 if current_status else 0)
+    requested_queue = st.session_state.pop("pending_customer_queue", None)
+    if requested_queue in QUEUE_LABELS:
+        st.session_state.cx_queue_filter = requested_queue
     if database_ready:
         try:
             saved_cases = recent_support_cases(limit=None)
-            if saved_cases:
-                with st.expander(f"Continue saved customer messages · {len(saved_cases)} recent"):
-                    lookup = {case["case_id"]: case for case in saved_cases}
-                    selected_case_id = st.selectbox("Choose a saved message", list(lookup), format_func=lambda key: f"{lookup[key].get('order_id') or 'No order number'} · {_status_label(lookup[key]['status'])} · {lookup[key]['ticket_text'][:50]}")
+            with st.expander(f"Saved customer tickets · {len(saved_cases)} total", expanded=bool(requested_queue) or not st.session_state.get("support_case")):
+                queue_col, search_col = st.columns([1, 2])
+                queue = queue_col.selectbox("Ticket queue", list(QUEUE_LABELS), format_func=QUEUE_LABELS.get, key="cx_queue_filter", on_change=_reset_customer_queue_selection)
+                query = search_col.text_input("Find a ticket", placeholder="Search message or order number", key="cx_queue_search").strip().casefold()
+                visible = [case for case in saved_cases if case_matches_queue(case, queue) and (not query or query in (str(case.get("order_id") or "") + " " + case["ticket_text"]).casefold())]
+                ticket_label = "ticket" if len(visible) == 1 else "tickets"
+                st.caption(f"{len(visible)} {ticket_label} · {QUEUE_LABELS[queue]}. Return/refund and ready-to-review counts can overlap risk queues.")
+                if visible:
+                    summary = []
+                    for case in visible:
+                        reasons = case_risk_reasons(case)
+                        summary.append({
+                            "Order": case.get("order_id") or "Number needed",
+                            "Customer message": case["ticket_text"][:110],
+                            "Priority": "Approved" if case["status"] == "approved_for_handoff" else "High risk" if reasons else "Low risk",
+                            "Status": _status_label(case["status"]),
+                            "Needs attention": reasons[0] if reasons else "Review the reply" if case["status"] != "approved_for_handoff" else "Ready for Freshdesk",
+                        })
+                    _show_table(pd.DataFrame(summary), hide_index=True, width="stretch", height=220)
+                    lookup = {case["case_id"]: case for case in visible}
+                    if st.session_state.get("saved_customer_message") not in lookup:
+                        st.session_state.pop("saved_customer_message", None)
+                    selected_case_id = st.selectbox("Choose a saved message", list(lookup), format_func=lambda key: f"{lookup[key].get('order_id') or 'No order number'} · {_status_label(lookup[key]['status'])} · {lookup[key]['ticket_text'][:50]}", key="saved_customer_message")
                     if st.button("Open this message", key="open-saved-case"):
                         st.session_state.support_case = lookup[selected_case_id]
                         st.session_state.cx_ticket_text = lookup[selected_case_id]["ticket_text"]
@@ -532,6 +569,8 @@ def _cx_workspace() -> None:
                         st.session_state.pop(f"reply-{selected_case_id}", None)
                         st.session_state.pop(f"cx-attest-{selected_case_id}", None)
                         st.rerun()
+                else:
+                    st.info("No tickets match this queue. Choose another queue or clear the search.")
         except Exception as exc:
             st.warning(_friendly_exception(exc, "Loading saved customer messages"))
     current_case = st.session_state.get("support_case") or {}
@@ -631,7 +670,7 @@ def _cx_workspace() -> None:
         if result.get("status") == "approved_for_handoff":
             st.success("This reply is approved and saved for your team.")
             st.code(result.get("draft_reply", ""), language=None, wrap_lines=True)
-            st.caption("Use the copy button on the reply. Sending to the customer happens in your support tool.")
+            _freshdesk_handoff()
         elif result.get("draft_reply"):
             reply = st.text_area("Reply for your team to review", value=result["draft_reply"], height=220, key=f"reply-{result['case_id']}", on_change=_reset_reply_review, args=(result["case_id"],))
             facts = result.get("carrier_facts") or {}
@@ -707,7 +746,8 @@ def _exports_workspace() -> None:
     a.metric("Approved products", len(listings))
     b.metric("Approved replies", len(cases))
     st.caption("These are internal approvals. Products have not been published and customer messages have not been sent.")
-    products_tab, replies_tab = st.tabs([f"Product listings ({len(listings)})", f"Customer replies ({len(cases)})"])
+    tab_labels = [f"Product listings ({len(listings)})", f"Customer replies ({len(cases)})"]
+    products_tab, replies_tab = st.tabs(tab_labels, default=tab_labels[1] if cases and not listings else tab_labels[0])
     for pane, rows, kind in [(products_tab, listings, "products"), (replies_tab, cases, "replies")]:
         with pane:
             if not rows:
@@ -734,6 +774,7 @@ def _exports_workspace() -> None:
                             st.write("Highlights: " + str(row.get("key_highlights") or "Not supplied"))
                         else:
                             st.code(row.get("draft_reply", ""), language=None, wrap_lines=True)
+                            _freshdesk_handoff()
                             if row.get("follow_up_reason"):
                                 st.warning(row["follow_up_reason"])
                         st.caption("Reviewed by " + str(row.get("approved_by") or "operator") + " · " + _display_date(row.get("approved_at_utc")))
@@ -743,7 +784,7 @@ def _exports_workspace() -> None:
 
 
 def _overview_workspace() -> None:
-    _page_header("YOUR TEAM'S WORKSPACE", "Your team’s work, in one place.", "Review product listings and customer replies. Choose a task or continue saved work.")
+    _page_header("YOUR TEAM'S WORKSPACE", "Your team’s work, in one place.", "See what is pending. Click any number to open the work that needs your attention.")
     drafts, messages = [], []
     counts = {}
     if database_ready:
@@ -753,10 +794,29 @@ def _overview_workspace() -> None:
             counts = workspace_counts()
         except Exception as exc:
             st.warning(_friendly_exception(exc, "Loading your work queue"))
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Products awaiting review", counts.get("listing_pending", 0))
-    c2.metric("Customer messages to follow up", counts.get("support_pending", 0))
-    c3.metric("Approved work", counts.get("listing_approved", 0) + counts.get("support_approved", 0))
+    with st.container(key="overview-metrics"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            _queue_metric("Products awaiting review", counts.get("listing_pending", 0), "products", _open_product_queue)
+        with c2:
+            _queue_metric("Tickets pending reply", counts.get("pending_tickets", 0), "pending", _open_customer_queue, ("pending",))
+        with c3:
+            _queue_metric("Approved work", counts.get("listing_approved", 0) + counts.get("support_approved", 0), "approved", _switch_workspace, ("Saved approvals",))
+        st.subheader("Your pending ticket queues")
+        st.caption("High risk means extra care or investigation is needed. Low risk means routine review. Both queues together cover every pending ticket.")
+        risk_cards = [
+            ("High risk tickets", "high_risk_tickets", "high_risk"),
+            ("Low risk tickets", "low_risk_tickets", "low_risk"),
+            ("Return / refund requests", "pending_return_requests", "returns"),
+            ("Replies ready to review", "ready_replies", "ready"),
+            ("Need order details", "needs_order_details", "needs_order_details"),
+            ("Approved customer replies", "support_approved", "approved"),
+        ]
+        for offset in (0, 3):
+            for column, (label, count_key, queue) in zip(st.columns(3), risk_cards[offset:offset + 3]):
+                with column:
+                    _queue_metric(label, counts.get(count_key, 0), count_key, _open_customer_queue, (queue,))
+        st.caption("Return/refund, ready-to-review and missing-detail counts are subsets and can overlap the risk queues. Approved replies are completed work.")
     st.subheader("What would you like to work on?")
     left, right = st.columns(2, gap="large")
     with left:
@@ -778,7 +838,7 @@ def _overview_workspace() -> None:
         st.write("1. Choose a task and add a supplier sheet or customer message. Samples let you practice.")
         st.write("2. Check the original details, fix anything missing, and edit the suggested text.")
         st.write("3. Save a draft to return later, or confirm your review and approve it for the team.")
-        st.write("4. Download completed work from Saved approvals. Publishing and sending happen in your usual tools.")
+        st.write("4. Download completed work from Saved approvals, or open Freshdesk from an approved reply to demonstrate the next step.")
 
 
 prepare_workspace_widget(st.session_state)
@@ -786,20 +846,8 @@ with st.sidebar:
     st.markdown('<div class="brand"><div class="brand-mark">d.</div><div><div class="brand-name">dhaga ops</div><div class="brand-caption">A calmer way to work.</div></div></div>', unsafe_allow_html=True)
     workspace = st.radio("WORKSPACE", WORKSPACES, key=WORKSPACE_KEY)
     st.divider()
-    st.text_input("Your name (for approvals)", key="operator_name", placeholder="E.g. Ananya", max_chars=100, help="Records who reviewed the work. The shared team password does not verify individual identity.")
     st.caption("Shared work saved" if database_ready and is_database_persistent() else "Saved on this computer" if database_ready else "Saving unavailable")
     st.caption("AI assistance on" if settings.live_models_enabled else "Sample mode · no AI calls")
-    with st.expander("Help & workspace details"):
-        st.write("Samples use illustrative orders and policies. Your store and courier accounts are not connected.")
-        if settings.live_models_enabled:
-            st.write("AI may send relevant supplier details and customer message text to Google. Use sample data while exploring.")
-        st.write("Save draft before leaving an editor. Reopen it from the saved drafts section on that page.")
-        st.write("Approval saves work internally. Use your store or support tool to publish or send.")
-        if not settings.app_password:
-            st.caption("Local workspace · no app password configured")
-    if settings.app_password and st.button("Sign out", width="stretch"):
-        st.session_state.clear()
-        st.rerun()
 
 st.markdown(f'<div class="topline"><span>Dhaga & Co. <span aria-hidden="true"> / </span> {escape(workspace)}</span><span class="mode-pill">Sample orders & policies</span></div>', unsafe_allow_html=True)
 flash = st.session_state.pop("flash_message", None)

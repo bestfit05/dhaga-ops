@@ -58,6 +58,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline:3px 
 .empty-copy { font-size:14px; color:#536569; line-height:1.6; }
 .source-cell { color:#536569; font-size:14px; margin:0 0 6px; }
 .source-value { color:#1e3035; font-size:16px; font-weight:550; }
+.st-key-overview-metrics .stButton button { min-height:110px; background:#fff; border:1px solid #dce2db; padding:1rem 1.1rem; justify-content:flex-start; text-align:left; }
+.st-key-overview-metrics .stButton button:hover { border-color:#a84321; background:#fffaf2; }
+.st-key-overview-metrics .stButton button [data-testid="stMarkdownContainer"] { width:100%; text-align:left; white-space:normal; overflow:visible; text-overflow:clip; }
+.st-key-overview-metrics .stButton button p { font-size:14px; color:#536569; line-height:1.4; white-space:normal; }
+.st-key-overview-metrics .stButton button strong { display:block; font-size:30px; font-weight:650; color:#1e3035; margin-bottom:6px; line-height:1.15; }
 @media (max-width:900px) { [data-testid="stMainBlockContainer"] { padding:1.5rem 1.3rem 3rem; } [data-testid="stMarkdownContainer"] .page-title { font-size:34px !important; } }
 @media (max-width:640px) { [data-testid="stHorizontalBlock"] { flex-wrap:wrap; gap:12px; } [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { width:100% !important; flex:1 1 100% !important; min-width:0 !important; } .topline { align-items:flex-start; font-size:12px; } [data-testid="stMarkdownContainer"] .page-title { font-size:30px !important; } .step { font-size:12px; } }
 @media (prefers-reduced-motion:reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } }
@@ -68,4 +73,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline:3px 
   [data-testid="stMetric"] { padding:.75rem .6rem; }
   [data-testid="stMetricLabel"] p { font-size:14px; white-space:normal; }
   [data-testid="stMetricValue"] { font-size:24px; }
+  .st-key-overview-metrics [data-testid="stHorizontalBlock"] { flex-wrap:wrap; gap:10px; }
+  .st-key-overview-metrics [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { width:calc(50% - 5px) !important; flex:1 1 calc(50% - 5px) !important; }
+  .st-key-overview-metrics .stButton button { padding:.8rem; min-height:104px; }
+  .st-key-overview-metrics .stButton button strong { font-size:26px; }
 }

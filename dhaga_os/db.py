@@ -216,16 +216,21 @@ def get_listing_rows(record_ids: list[str]) -> list[dict[str, Any]]:
 
 def workspace_counts() -> dict[str, int]:
     """Exact workspace totals, independent of the paged review lists."""
+    from dhaga_os.queues import support_queue_counts
+
     with session_scope() as session:
-        return {
+        cases = session.scalars(select(SupportCase)).all()
+        result = {
             "listing_total": session.scalar(select(func.count()).select_from(ListingRecord)) or 0,
             "listing_pending": session.scalar(select(func.count()).select_from(ListingRecord).where(ListingRecord.status != "approved")) or 0,
             "listing_approved": session.scalar(select(func.count()).select_from(ListingRecord).where(ListingRecord.status == "approved")) or 0,
-            "support_total": session.scalar(select(func.count()).select_from(SupportCase)) or 0,
-            "support_pending": session.scalar(select(func.count()).select_from(SupportCase).where(SupportCase.status != "approved_for_handoff")) or 0,
-            "support_approved": session.scalar(select(func.count()).select_from(SupportCase).where(SupportCase.status == "approved_for_handoff")) or 0,
-            "support_needs_review": session.scalar(select(func.count()).select_from(SupportCase).where(SupportCase.requires_human_escalation.is_(True), SupportCase.status != "approved_for_handoff")) or 0,
+            "support_total": len(cases),
+            "support_pending": sum(row.status != "approved_for_handoff" for row in cases),
+            "support_approved": sum(row.status == "approved_for_handoff" for row in cases),
+            "support_needs_review": sum(row.requires_human_escalation and row.status != "approved_for_handoff" for row in cases),
         }
+        result.update(support_queue_counts(_support_payload(row) for row in cases))
+        return result
 
 
 def unapproved_listing_rows(limit: int | None = 100) -> list[dict[str, Any]]:
@@ -240,32 +245,34 @@ def unapproved_listing_rows(limit: int | None = 100) -> list[dict[str, Any]]:
         return [_listing_payload(row) for row in rows]
 
 
+def _support_payload(row: SupportCase) -> dict[str, Any]:
+    return {
+        "case_id": row.id,
+        "ticket_text": row.ticket_text,
+        "parsed_query": row.parsed_query or {},
+        "order_id": row.order_id,
+        "carrier_facts": row.carrier_facts or None,
+        "policy_references": row.policy_references or [],
+        "draft_reply": row.draft_reply,
+        "factual_verification_passed": row.factual_verification_passed,
+        "verification_notes": row.verification_notes,
+        "requires_human_escalation": row.requires_human_escalation,
+        "escalation_reason": row.escalation_reason,
+        "status": row.status,
+        "approved_by": row.approved_by or "",
+        "model_warnings": [],
+        "saved": True,
+        "_revision": _revision_stamp(row),
+    }
+
+
 def recent_support_cases(limit: int | None = 50) -> list[dict[str, Any]]:
     """Return recent saved cases so a Streamlit session can recover after a refresh."""
     with session_scope() as session:
         rows = session.scalars(
             select(SupportCase).order_by(SupportCase.updated_at.desc()).limit(limit)
         ).all()
-        return [
-            {
-                "case_id": row.id,
-                "ticket_text": row.ticket_text,
-                "parsed_query": row.parsed_query or {},
-                "order_id": row.order_id,
-                "carrier_facts": row.carrier_facts or None,
-                "policy_references": row.policy_references or [],
-                "draft_reply": row.draft_reply,
-                "factual_verification_passed": row.factual_verification_passed,
-                "verification_notes": row.verification_notes,
-                "requires_human_escalation": row.requires_human_escalation,
-                "escalation_reason": row.escalation_reason,
-                "status": row.status,
-                "model_warnings": [],
-                "saved": True,
-                "_revision": _revision_stamp(row),
-            }
-            for row in rows
-        ]
+        return [_support_payload(row) for row in rows]
 
 
 def save_listing_draft(record: dict[str, Any]) -> None:

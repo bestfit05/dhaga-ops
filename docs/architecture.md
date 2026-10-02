@@ -2,26 +2,17 @@
 
 ## High-level design
 
-The MVP is a single Python application with a guided Streamlit operator interface and a service layer. The overview leads into product listings, customer messages, or saved approvals. Catalog review uses a searchable/filterable queue and one selected product; CX places the editable reply beside source order facts. A separate HTTP API is not needed for these two synchronous workflows. The Vercel configuration hosts Streamlit in a container; PostgreSQL holds shared workflow state. Unsaved editor content belongs to the browser session, while saved listing and reply edits can be reopened from the database.
+The MVP is a single Python application with a guided Streamlit operator interface and a service layer. It opens directly without an app password, login, sign-out or reviewer-name form. The sidebar provides workspace navigation. Overview numbers open their corresponding filtered queues, rather than displaying counts without a next action. Catalog review uses one selected product; CX places the editable reply beside source order facts. A separate HTTP API is not needed for these synchronous workflows. Vercel hosts the Streamlit container and PostgreSQL holds shared workflow state.
+
+Unsaved editor content belongs to the Streamlit session. `disconnectedSessionTTL = 86400` retains a disconnected session for up to 24 hours while the same server remains running. Server restarts, replacement containers or a new browser session can lose unsaved content. Explicitly saved listing/reply edits and approvals are recoverable from PostgreSQL. Session retention is not autosave.
 
 The corrective [discovery and PRD review](product-discovery-and-prd.md) records the original evidence, problem ranking, assumptions, and acceptance criteria. It was written after implementation. The primary owner is Arpita for repetitive order-status support; Vivek owns the separate listing workflow. Production integrations and cold user studies have not been tested.
 
-```mermaid
-flowchart LR
-    Operator[Listing operator or CX agent] --> Browser[Streamlit browser UI]
-    Browser <-->|HTTP + WebSocket session| App[Vercel container\nStreamlit + Python services]
-    App --> Catalog[Catalog service]
-    App --> CX[CX triage service]
-    Catalog --> Gateway[Rules-first model gateway]
-    CX --> Gateway
-    Catalog --> Rules[Color dictionary + deterministic checks]
-    CX --> Rules
-    CX --> Fixtures[Mock carrier order records]
-    CX --> Policies[Local policy corpus\nTF-vector cosine retrieval]
-    Gateway -. selected structured tasks only .-> Gemini[Gemini API\nfast + creative model]
-    App --> DB[(Managed PostgreSQL\nshared staging + audit)]
-    App -. local development only .-> SQLite[(SQLite file)]
-```
+![System overview](diagrams/system-overview.svg)
+
+[Editable Mermaid source](diagrams/system-overview.mmd).
+
+These diagrams are static SVGs generated from Mermaid, so reading this page does not require a Mermaid-enabled Markdown viewer. The source files remain editable; renderer verification and regeneration instructions are in [the diagram record](diagrams/README.md).
 
 The application has three execution modes:
 
@@ -33,92 +24,40 @@ The model gateway routes clear work to deterministic Python logic. Known color a
 
 ## Catalog data flow
 
-```mermaid
-sequenceDiagram
-    actor Operator
-    participant UI as Streamlit catalog workspace
-    participant Service as Python catalog service
-    participant Models as Gemini fast / creative models
-    participant DB as PostgreSQL staging
-    Operator->>UI: Upload CSV or XLSX / load example
-    UI->>Service: File bytes + source filename
-    Service->>Service: Validate headers, keep readable rows, stable content/row IDs
-    UI->>DB: Recover matching saved drafts and approvals
-    Service->>Service: Process only new rows; map colors and sizes
-    Service->>Service: Flag missing details, unknown color, invalid price
-    opt MODEL_MODE=live and supplier notes contain useful free text plus missing attributes
-      Service->>Models: Normalize only the missing attributes (T=0.0)
-      Models-->>Service: Pydantic-validated attributes
-    end
-    opt MODEL_MODE=live and product details are ready
-      Service->>Models: Batch Hinglish copy generation (T=0.7)
-      Models-->>Service: Pydantic-validated copy
-      Service->>Models: Batch factuality audit (T=0.1)
-      Models-->>Service: Pydantic-validated audit results
-    end
-    Service->>Service: Deterministic fabric/care guardrail
-    Service-->>UI: Review queue + warnings + separate row errors
-    UI->>DB: Save new drafts; expose partial save failures
-    Operator->>UI: Select one product; compare source; edit details/text
-    UI->>Service: Refresh required fields, issues, and factual checks
-    UI->>DB: Save draft or request reviewed approval
-    DB->>DB: Recheck final copy, source identity, duplicate approved SKU
-    DB-->>UI: Saved state + content-hash audit event
-    UI-->>Operator: Saved approval and safe Unicode CSV export
-```
+![Catalog workflow](diagrams/catalog-flow.svg)
+
+[Editable Mermaid source](diagrams/catalog-flow.mmd).
 
 The local color dictionary maps 141 synthetic/common spellings to one of 24 values. The brief describes around ninety spellings but supplies no authoritative mapping or palette; obtain it from Vivek before a client pilot. Unknown shades require an operator's color choice even when a model suggests a value. Supplier code, product name, source-supported fabric, and a palette color are required; a supplied price must be finite and nonnegative. Common alpha sizes/ranges normalize to XS–XXL; unrecognized vendor labels remain visible rather than being invented.
 
 Imports accept up to 5 MB and 500 readable rows, handle quoted multiline CSV, reject ambiguous/duplicate headers, and report invalid rows without discarding readable ones. Those caps and the 50-row/90-second local test are implementation choices, not original PRD targets. File-content plus row identifiers let an identical reupload recover saved edits and approval rather than overwriting them with fresh generation. Approval protects saved supplier source identity, checks final edited text again inside the transaction, blocks an already approved supplier-code duplicate, and records a content hash. Missing model audit results cannot be treated as a successful audit; an explicit human comparison with the supplier source is required before that review gate can be cleared.
 
-Save edits before switching products or workspaces. Partial import-save failures stay visible and offer a retry. Full saved-work lists are requested without the service's default 100-listing/50-case caps; overview totals use direct count queries. Draft batch export is labeled as work for review; approved listing export retains category, color, fabric, fit, care, sizes, price, highlights, occasions, keywords, source row/file, reviewer, and approval timestamp. Formula-like source text is prefixed as spreadsheet text in UTF-8-with-BOM CSV output.
+Save edits before switching products or workspaces. Partial import-save failures stay visible and offer a retry. Full saved-work lists are requested without the service's default 100-listing/50-case caps. Product overview totals use direct count queries, and customer totals apply the same queue predicates as the visible lists across all saved cases. Draft batch export is labeled as work for review; approved listing export retains category, color, fabric, fit, care, sizes, price, highlights, occasions, keywords, source row/file, approval actor, and timestamp. Formula-like source text is prefixed as spreadsheet text in UTF-8-with-BOM CSV output.
+
+| Overview number | Queue and counting rule |
+| --- | --- |
+| Products awaiting review | All saved listings whose status is not `approved` |
+| Tickets pending reply | All saved cases whose status is not `approved_for_handoff` |
+| High risk tickets | Pending cases with at least one attention reason: missing/conflicting facts, manual-review state, angry/anxious sentiment, complaint/dispute, unsupported decision, failed verification, or an overdue/missing carrier ETA |
+| Low risk tickets | Pending cases without those attention reasons; still require review |
+| Return / refund requests | Pending return/refund/exchange wording or return intent, with explicit negative requests excluded |
+| Replies ready to review | Pending `draft_ready` cases with reply text, verified facts and a successful carrier lookup |
+| Need order details | Pending cases in `needs_identifier` or `not_found` |
+| Approved work / approved customer replies | Completed saved approvals, routed to their corresponding saved-work views |
+
+High-risk and low-risk counts partition pending tickets. Returns/refunds, ready replies and missing-detail counts are overlapping subsets, so they must not be summed as independent totals. Risk is an operational attention label, not a fraud score or a promise of factual safety. Date-based attention uses the current India calendar date.
 
 ## CX triage data flow
 
-```mermaid
-sequenceDiagram
-    actor Agent as CX agent
-    participant UI as Streamlit CX workspace
-    participant Service as Python CX service
-    participant Fixtures as Carrier fixtures
-    participant RAG as Local policy retrieval
-    participant Models as Gemini fast / creative models
-    participant DB as PostgreSQL staging
-    Agent->>UI: Paste customer message / order ID / phone
-    UI->>Service: Ticket text + optional identifiers
-    opt MODEL_MODE=live and local rules cannot identify the intent
-      Service->>Models: Intent and identifier extraction (T=0.0)
-      Models-->>Service: Pydantic-validated route
-    end
-    Service->>Fixtures: Exact order / unique phone lookup; validate identifier agreement
-    Fixtures-->>Service: Carrier, location, status, supplied ETA, uncertainty
-    alt Missing ID, conflicting match, tracking failure, cancellation or dispute
-      Service-->>UI: Request-for-ID or internal follow-up with next step
-    else Matching tracking record
-      Service->>RAG: Ticket + intent + status
-      RAG-->>Service: Top policy clauses by cosine similarity
-      opt MODEL_MODE=live and the reply needs careful wording
-        Service->>Models: Hinglish reply draft (T=0.4)
-        Models-->>Service: Pydantic-validated draft
-      end
-      opt A reply was written by Gemini
-        Service->>Models: Carrier/date consistency audit (T=0.1)
-        Models-->>Service: Pydantic-validated audit
-      end
-      Service->>Service: Deterministic carrier/date check
-      Service-->>UI: Facts, policy references, draft and escalation flags
-      Agent->>UI: Edit reply; save draft or confirm review
-      UI->>DB: Persist edited draft separately / request approval
-      DB->>DB: Recheck final reply against saved facts and allowed state
-      DB-->>UI: Saved result + content-hash audit event
-    end
-```
+![Customer-message workflow](diagrams/customer-flow.svg)
+
+[Editable Mermaid source](diagrams/customer-flow.mmd).
 
 Literal order numbers and phone numbers are extracted with regular expressions first; model output cannot replace a literal source identifier. An explicit order ID does not fall through to a different phone match, supplied identifiers must agree, and a phone must match exactly one sample order. Multiple mentioned orders require an operator choice. Gemini assists only when routing needs interpretation or a supported reply benefits from careful wording. Cancellation and disputed delivery require a teammate, with no invented cancellation or doorstep-refusal instructions.
 
 A shipment is overdue when its supplied carrier ETA is before today's India date and its status is still active. Transit duration alone does not establish delay; missing ETA is visible uncertainty and follow-up. The four-to-seven-day normal range from the brief is context, not a universal four-day alarm. Return eligibility/window and cancellation rules are not supplied by the client; example guidance retains only the source fact that refunds follow inspection.
 
-Saved CX edits remain drafts until a separate reviewed approval. The service checks known order/courier/date/status/location/link markers and unverified promise expressions; the database checks final edited wording again against unchanged saved facts. These bounded checks and optional model evaluation do not prove all possible statements factually safe, so human source review remains mandatory. Approval only saves an internal handoff; a flag or downloadable internal follow-up note does not assign a courier task or send a message.
+Saved CX edits remain drafts until a separate reviewed approval. The service checks known order/courier/date/status/location/link markers and unverified promise expressions; the database checks final edited wording again against unchanged saved facts. These bounded checks and optional model evaluation do not prove all possible statements factually safe, so human source review remains mandatory. Approval only saves an internal handoff. After approval, **1-click reply to CX** opens the public [Freshdesk main page](https://www.freshworks.com/freshdesk/) as a demo. It neither identifies a connected ticket nor sends the reply. A flag or downloadable internal follow-up note does not assign a courier task.
 
 ## Database design
 
@@ -134,7 +73,7 @@ PostgreSQL is the shared system of record for operator drafts and approval histo
 
 The schema is intentionally small and implemented with SQLAlchemy `create_all` at startup. Before production use, move schema evolution to Alembic migrations, add per-user identity and authorization, encrypt/retention-manage any real ticket PII, and add indexes based on actual query volume.
 
-Draft updates and approvals run in database transactions. A repeated identical approval is idempotent, a stale draft save cannot revoke approval, and approval reruns checks over final text instead of trusting a stale browser boolean. Reopened records carry an `updated_at` revision token; a conditional status/revision update rejects stale unapproved edits. PostgreSQL row locks protect same-record writes, and a transaction-level advisory lock on normalized supplier code protects duplicate approval across records. SQLite uses `BEGIN IMMEDIATE` to serialize writers. These checks use existing fields and require no schema migration. The reviewer name is self-reported; the shared password does not establish personal identity. Content hashes describe reviewed content but are not signatures or tamper-evident audit infrastructure.
+Draft updates and approvals run in database transactions. A repeated identical approval is idempotent, a stale draft save cannot revoke approval, and approval reruns checks over final text instead of trusting a stale browser boolean. Reopened records carry an `updated_at` revision token; a conditional status/revision update rejects stale unapproved edits. PostgreSQL row locks protect same-record writes, and a transaction-level advisory lock on normalized supplier code protects duplicate approval across records. SQLite uses `BEGIN IMMEDIATE` to serialize writers. These checks use existing fields and require no schema migration. New MVP actions automatically use actor **MVP team**. No app authentication or verified personal identity is established; existing records retain their historical actor values. Content hashes describe reviewed content but are not signatures or tamper-evident audit infrastructure.
 
 ## Technology choices and guardrails
 
@@ -150,6 +89,6 @@ The local policy search represents each short policy as a term-count vector and 
 
 ## Deployment and operational boundary
 
-The redesigned application is deployed at [dhaga-ops.vercel.app](https://dhaga-ops.vercel.app), retaining Vercel Authentication and the app's shared password and using PostgreSQL for shared drafts/approvals; local SQLite is for development only. Final revision `a2c5dd9` is `READY`; hosted sign-in, health, phone navigation, complete saved-work retrieval and exact-product recovery were verified. [Release verification](release-verification.md) records exact revisions and evidence. Fast model classification succeeded once. Creative generation showed mapped temporary AI-service unavailability and fell back locally even with LOW 3.8 thinking and a single-attempt 40-second request timeout. Successful creative generation and provider-quality measurements remain open; four synthetic drafts persisted without external sends/approvals or changes to existing products.
+The application is hosted at [dhaga-ops.vercel.app](https://dhaga-ops.vercel.app), using PostgreSQL for shared drafts/approvals; local SQLite is for development only. The earlier `a2c5dd9` release was READY with authenticated access, health and recovery checked. That historical release retained access gates. The latest MVP removes app authentication and adds linked queues, automatic **MVP team** review attribution, the Freshdesk demo handoff and 24-hour disconnected-session retention. Its test/deployment results are tracked separately in [release verification](release-verification.md).
 
-The container is configured by `Dockerfile.vercel`. Deployment environment variables include `DATABASE_URL` and `DHAGA_APP_PASSWORD`; keep credentials in Vercel's encrypted project settings. For optional live Gemini requests, set `MODEL_MODE=live` and `GEMINI_API_KEY`. Distinct defaults are `gemini-3.5-flash-lite` for extraction/routing/evaluation and `gemini-3.8-flash` for wording; environment overrides remain configurable. Free-tier data-use terms apply, so the demo uses synthetic data. Keep both access gates during routine deployments. Local timing tests do not establish live provider latency, production throughput, or measured savings.
+The container is configured by `Dockerfile.vercel`. Store `DATABASE_URL` and optional `GEMINI_API_KEY` in Vercel's encrypted project settings. There is no app password setting. For optional live Gemini requests, set `MODEL_MODE=live`. Distinct defaults are `gemini-3.5-flash-lite` for extraction/routing/evaluation and `gemini-3.8-flash` for wording; environment overrides remain configurable. Free-tier data-use terms apply, so the demo uses synthetic data. Earlier hosted fast classification succeeded once, while creative calls showed mapped temporary unavailability even with LOW thinking and a bounded 40-second single attempt. The fact-checked fallback persisted. Successful creative generation, provider quality and measured production latency/cost remain unvalidated.

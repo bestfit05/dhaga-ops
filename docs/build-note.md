@@ -23,7 +23,7 @@ The gateway checks task need before calling Gemini. Catalog generation uses only
 
 **Routing** keeps clear work local and sends unsupported requests to a teammate. Without it, routine work incurs calls and cancellation can get unsafe generic wording. **Prompt chaining** passes standardized facts into copy and evaluation; otherwise writer and reviewer lack a consistent source. Evaluation is one check, not an autonomous repair loop.
 
-The UI provides a searchable product queue and reply/facts panels. Full saved-work lists and complete listing exports retain previous work. Drafts save separately from approval. Exact reuploads recover saved work; revision tokens/conditional writes and row/SKU locks prevent stale or conflicting writes. Approval rechecks final text and records the self-reported reviewer.
+The MVP opens directly, with workspace navigation in the sidebar and no app login, password, sign-out or reviewer entry. Overview counts open matching queues: high/low risk partition pending tickets; return/refund, ready-reply and missing-detail subsets may overlap. Product queues and reply/facts panels support source review. Drafts save separately from approval; exact reuploads recover saved work. Revision checks and row/SKU locks guard conflicting writes. Final approval rechecks text and records **MVP team**, without verified personal identity. **1-click reply to CX** opens the [Freshdesk main page](https://www.freshworks.com/freshdesk/) as a demo, without sending. Disconnected sessions retain state for up to 24 hours on the running server; restarts/new browsers can lose unsaved edits, while saved database work remains recoverable.
 
 ## Model configuration
 
@@ -50,8 +50,8 @@ Formula: `(Lite in × 0.30 + Lite out × 2.50 + Flash in × 0.75 + Flash out × 
 
 The demo labeled every shipment older than four days delayed and suggested COD doorstep refusal. The brief gives normal four-to-seven-day delivery and no refusal rule. Corrected behavior uses overdue ETA, missing-date uncertainty, and manual cancellation. Valid JSON did not catch the policy error.
 
-The local-route `None` contract is fixed and approval rechecks final edits. All 70 tests passed in 1.793s; final revision `a2c5dd9` is READY with hosted sign-in/health/recovery checks. Fast classification succeeded once; creative calls still showed mapped temporary AI-service unavailability after LOW/40s tuning (an earlier attempt showed a took-too-long message). Fact-checked fallback persisted correctly. See [release evidence](release-verification.md). Local timing is an implementation benchmark.
+The local-route `None` contract is fixed and approval rechecks final edits. The earlier `a2c5dd9` release passed 70 tests in 1.793s and was READY with hosted sign-in/health/recovery checked. Fast classification succeeded once; creative calls showed mapped temporary unavailability after LOW/40s tuning. Fact-checked fallback persisted. The new navigation/queue release has separate [verification evidence](release-verification.md). Local timing is an implementation benchmark.
 
 ## MVP limits
 
-No production integration, cold user study, or accessibility audit was tested. Policies/data are synthetic; reviewer identity is self-reported. The [discovery/PRD review](product-discovery-and-prd.md) was written after implementation. Approved policy, real-data controls, metering, and owner-led pilots remain prerequisites.
+No production integration, cold user study, or accessibility audit was tested. Policies/data are synthetic; **MVP team** attribution does not identify a person. The [discovery/PRD review](product-discovery-and-prd.md) was written after implementation. Approved policy, real-data controls, metering, and owner-led pilots remain prerequisites.

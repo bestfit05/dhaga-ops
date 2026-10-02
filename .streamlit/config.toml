@@ -9,3 +9,5 @@ font = "sans serif"
 [server]
 headless = true
 maxUploadSize = 5
+# Keep interrupted browser sessions for a day on the same running instance.
+disconnectedSessionTTL = 86400

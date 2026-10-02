@@ -18,7 +18,6 @@ class Settings:
     gemini_creative_model: str
     database_url: str
     sqlite_path: Path
-    app_password: str
     is_vercel: bool
 
     @property
@@ -47,6 +46,5 @@ def get_settings() -> Settings:
         gemini_creative_model=os.getenv("GEMINI_CREATIVE_MODEL", "gemini-3.8-flash").strip(),
         database_url=database_url,
         sqlite_path=sqlite_path,
-        app_password=os.getenv("DHAGA_APP_PASSWORD", ""),
         is_vercel=bool(os.getenv("VERCEL")),
     )

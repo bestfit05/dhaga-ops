@@ -2,15 +2,17 @@
 
 Dhaga Ops helps listing operators and support agents turn supplier details and customer messages into reviewed work for their team. Choose a task, check the source facts, save a draft, and approve it when it is ready. Approval is an internal handoff; publishing and sending happen in your usual tools.
 
-The redesigned application is deployed at [dhaga-ops.vercel.app](https://dhaga-ops.vercel.app), with Vercel Authentication and the app password. Hosted sign-in, health, saved work, and exact-product recovery were checked against the deployed GitHub revision. See the [release verification record](docs/release-verification.md). Orders and policy examples are synthetic; no Dhaga production systems are connected.
+The application is hosted at [dhaga-ops.vercel.app](https://dhaga-ops.vercel.app). The latest MVP removes the app password, login, sign-out and reviewer-name entry; the sidebar is for workspace navigation. Delivery and verification of this update are recorded separately from the earlier release in the [release verification record](docs/release-verification.md). Orders and policy examples are synthetic; no Dhaga production systems are connected.
 
 ## Start with one task
 
 **Product listings:** Load the sample products or upload a supplier sheet. Search the review queue, filter products needing attention, and open one product at a time. Compare the supplier's original details, fix missing fields, review the listing text, then choose **Save draft** or **Approve for team**. Use **Saved approvals** to download completed work. Reuploading the identical sheet reopens its saved versions, including earlier edits and approvals.
 
-**Customer messages:** Paste the customer's message or choose a sample, then select **Check order & prepare reply**. Review the order facts beside the editable reply. Choose **Save reply draft** to return later, or confirm your review and **Approve for team**. Missing identifiers show a request for information. Cancellation, disputed delivery, unmatched details, and unavailable tracking give a concrete follow-up step.
+**Customer messages:** Paste the customer's message or choose a sample, then select **Check order & prepare reply**. Review the order facts beside the editable reply. Choose **Save reply draft** to return later, or confirm your review and **Approve for team**. Missing identifiers show a request for information. Cancellation, disputed delivery, unmatched details, and unavailable tracking give a concrete follow-up step. After approval, **1-click reply to CX** opens the [Freshdesk main page](https://www.freshworks.com/freshdesk/) as a demo handoff. Copy the approved reply into your usual support tool; the link does not send it or open a connected ticket.
 
-Save before leaving an editor. Reopen product drafts or customer messages from their saved-work section. Add **Your name (for approvals)** in the sidebar so the review record is understandable; it is a self-reported name, not individual sign-in.
+**Overview:** Click a number to open its matching queue. Products awaiting review excludes approved listings; tickets pending reply excludes approved replies. High-risk and low-risk queues together cover every pending ticket. Return/refund, ready-to-review and missing-order-detail counts are subsets that can overlap those risk queues. High risk means extra attention is needed, not a fraud prediction; low risk still requires review.
+
+Save before leaving an editor. Reopen product drafts or customer messages from their saved-work section. Reviews are recorded automatically as **MVP team**, without verified personal identity. A disconnected Streamlit session is retained for up to 24 hours while its server remains running. A server restart or new browser session can lose unsaved content; saved database drafts and approvals can be recovered.
 
 ## What you can do
 
@@ -50,9 +52,9 @@ Open the local URL printed by Streamlit. Choose **Product listings** to load the
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-The suite covers parsing/normalization, import recovery, missing and conflicting facts, routing, all sample carriers, ETA uncertainty, final approval checks, storage recovery, and CSV safety. The 50-row/90-second catalog and three-second local CX checks are implementation benchmarks, not targets supplied by the client brief or measured live AI latency.
+The suite covers parsing/normalization, import recovery, missing and conflicting facts, routing, all sample carriers, ETA uncertainty, final approval checks, storage recovery, and CSV safety. Current UI/queue regressions also cover exact overview metrics, high/low-risk partitioning, filtered-queue navigation and the Freshdesk demo link. The 50-row/90-second catalog and three-second local CX checks are implementation benchmarks, not targets supplied by the client brief or measured live AI latency.
 
-On 2 October 2026, all **70 tests passed in 1.793 seconds**, including UI, concurrency and provider-configuration regressions. Production revision `a2c5dd9` is `READY`; fresh sign-in, health, desktop/phone layouts and hosted saved-work recovery were checked. Four smokes persisted synthetic drafts without approval, sending, or changes to existing products. Fast AI classification succeeded once. Creative calls still showed mapped temporary AI-service unavailability after LOW thinking and a bounded 40-second request configuration; the fact-checked local fallback worked. See [exact release evidence and limits](docs/release-verification.md). No cold user study, live creative-quality benchmark, or production Dhaga integration has been tested. The corrective [discovery and PRD review](docs/product-discovery-and-prd.md) records evidence, assumptions, criteria and pilot measurements; it was written after implementation.
+The earlier release on 2 October 2026 passed **70 tests in 1.793 seconds**, including UI, concurrency and provider-configuration regressions, and deployed revision `a2c5dd9` was `READY`. Its authenticated access, health, desktop/phone layouts and saved-work recovery were checked. Four smokes persisted synthetic drafts without approval, sending, or changes to existing products. Fast AI classification succeeded once; creative calls showed mapped temporary AI-service unavailability, with a working fact-checked fallback. These are historical results, not verification of the new navigation/queue update. See [current and historical release evidence](docs/release-verification.md). No cold user study, live creative-quality benchmark, or production Dhaga integration has been tested. The corrective [discovery and PRD review](docs/product-discovery-and-prd.md) was written after implementation.
 
 ## Optional Gemini assistance
 
@@ -68,9 +70,9 @@ For Vercel, set `MODEL_MODE=live` and `GEMINI_API_KEY` in the project's encrypte
 
 ## Database and deployment
 
-Set `DATABASE_URL` to a managed PostgreSQL connection string for shared storage. The Vercel deployment requires PostgreSQL because local files do not provide durable shared storage. Configure `DHAGA_APP_PASSWORD` in the Vercel project settings; retain Vercel Authentication as a separate access gate.
+Set `DATABASE_URL` to a managed PostgreSQL connection string for shared storage. The Vercel deployment requires PostgreSQL because local files do not provide durable shared storage. The MVP has no app login or password configuration. Approval actor **MVP team** is an automatic team label, not an authenticated user.
 
-The deployment configuration uses the repository's `Dockerfile.vercel`. Use the Vercel project already linked to this repository and keep both access gates enabled.
+The deployment configuration uses the repository's `Dockerfile.vercel`. Use the Vercel project already linked to this repository. Streamlit's `disconnectedSessionTTL = 86400` retains disconnected sessions for up to 24 hours; this is separate from durable database saving and does not survive server replacement.
 
 ## When something needs attention
 
@@ -89,7 +91,8 @@ The deployment configuration uses the repository's `Dockerfile.vercel`. Use the 
 - The four policy examples are not Dhaga-approved policy. Confirm their wording and rules with the CX owner before any pilot.
 - Data in `data/` is synthetic. Replace it with authorized, client-approved test data before handling real customer information.
 - “Approve” records an internal staging or agent handoff decision. It never publishes a listing or sends a customer response.
-- The shared app password and self-reported reviewer name are demo controls, not verified per-person identity or role-based access.
+- There is no app authentication or person-level approval identity. Audit actions use **MVP team**; this demo does not provide individual accountability or role-based access.
+- The Freshdesk button opens a public product page only. There is no connected support ticket, automatic reply, or customer send.
 - Live model latency and quality need measurement with the configured provider. Demo performance tests do not prove a production AI latency target.
 
 ## Project layout
@@ -101,6 +104,7 @@ dhaga_os/cx.py               Ticket routing, sample lookup, replies and fact che
 dhaga_os/policy_rag.py       Local policy ranking
 dhaga_os/llm.py              Structured Gemini boundary
 dhaga_os/db.py               SQLAlchemy tables, approval and recovery queries
+dhaga_os/queues.py           Shared customer queue filters and exact overview counts
 dhaga_os/exports.py          Unicode CSV output and formula-like text handling
 data/                        Synthetic products, orders and policies
 docs/product-discovery-and-prd.md  Corrective discovery, PRD, gaps and pilot plan

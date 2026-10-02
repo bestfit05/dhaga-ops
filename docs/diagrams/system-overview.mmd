@@ -1,0 +1,14 @@
+flowchart TB
+    Operator["Listing operator or CX agent"] --> Browser["Streamlit browser UI"]
+    Browser <-->|HTTP and WebSocket| App["Vercel container<br/>Streamlit and Python services"]
+    App --> Catalog["Catalog service"]
+    App --> CX["CX triage service"]
+    Catalog --> Gateway["Rules-first model gateway"]
+    CX --> Gateway
+    Catalog --> Rules["Color dictionary<br/>and deterministic checks"]
+    CX --> Rules
+    CX --> Fixtures["Synthetic carrier records"]
+    CX --> Policies["Example policy corpus<br/>term-vector cosine retrieval"]
+    Gateway -.->|Selected structured tasks| Gemini["Gemini API<br/>fast and creative models"]
+    App --> DB[("PostgreSQL<br/>shared drafts and audit")]
+    App -.->|Local development| SQLite[("SQLite file")]

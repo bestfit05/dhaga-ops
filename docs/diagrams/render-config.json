@@ -1,0 +1,17 @@
+{
+  "theme": "neutral",
+  "htmlLabels": false,
+  "flowchart": {
+    "htmlLabels": false
+  },
+  "sequence": {
+    "wrap": true,
+    "width": 110,
+    "actorMargin": 30,
+    "wrapPadding": 10,
+    "diagramMarginX": 20,
+    "messageFontSize": 16,
+    "actorFontSize": 16,
+    "mirrorActors": false
+  }
+}

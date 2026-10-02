@@ -1,0 +1,31 @@
+sequenceDiagram
+    actor Operator
+    participant UI as Catalog workspace
+    participant Service as Catalog service
+    participant Models as Gemini models
+    participant DB as PostgreSQL
+    Operator->>UI: Upload CSV or XLSX, or load example
+    UI->>Service: File bytes and source filename
+    Service->>Service: Validate headers and rows, derive stable IDs
+    UI->>DB: Recover saved edits and approvals
+    Service->>Service: Process new rows, map colors and sizes
+    Service->>Service: Flag missing details, color or price errors
+    opt Live mode with missing attributes in useful notes
+        Service->>Models: Extract missing attributes at T=0.0
+        Models-->>Service: Schema-validated attributes
+    end
+    opt Live mode with complete product details
+        Service->>Models: Generate listing copy at T=0.7
+        Models-->>Service: Schema-validated copy
+        Service->>Models: Audit source consistency at T=0.1
+        Models-->>Service: Schema-validated audit
+    end
+    Service->>Service: Run fabric and care checks
+    Service-->>UI: Review queue, warnings and row errors
+    UI->>DB: Save drafts, report partial failures
+    Operator->>UI: Select product, compare source, edit
+    UI->>Service: Recheck fields and final text
+    UI->>DB: Save draft or request approval as MVP team
+    DB->>DB: Check revision, final copy and duplicate SKU
+    DB-->>UI: Saved result and content-hash audit
+    UI-->>Operator: Saved approval and safe CSV export

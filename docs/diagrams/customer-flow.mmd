@@ -1,0 +1,37 @@
+sequenceDiagram
+    actor Agent as CX agent
+    participant UI as CX workspace
+    participant Service as CX service
+    participant Fixtures as Carrier fixtures
+    participant RAG as Policy retrieval
+    participant Models as Gemini models
+    participant DB as PostgreSQL
+    Agent->>UI: Paste message, order ID or phone
+    UI->>Service: Message and optional identifiers
+    opt Live mode with unclear local intent
+        Service->>Models: Extract intent at T=0.0
+        Models-->>Service: Schema-validated route
+    end
+    Service->>Fixtures: Exact order or unique phone, check agreement
+    Fixtures-->>Service: Status, location, ETA and uncertainty
+    alt Missing details, conflict, failure or manual decision
+        Service-->>UI: Request information or show next owner step
+    else Matching tracking record
+        Service->>RAG: Message, intent and order status
+        RAG-->>Service: Relevant example policy clauses
+        opt Live mode needing careful wording
+            Service->>Models: Draft Hinglish reply at T=0.4
+            Models-->>Service: Schema-validated reply
+        end
+        opt Gemini wrote the reply
+            Service->>Models: Check carrier and dates at T=0.1
+            Models-->>Service: Schema-validated audit
+        end
+        Service->>Service: Run deterministic fact checks
+        Service-->>UI: Facts, policies, reply and follow-up flags
+        Agent->>UI: Edit reply, save draft or confirm review
+        UI->>DB: Save draft or request approval as MVP team
+        DB->>DB: Recheck final text, revision and saved facts
+        DB-->>UI: Saved result and content-hash audit
+        UI-->>Agent: Approved reply and Freshdesk demo link
+    end
