@@ -30,6 +30,7 @@ The UI provides a searchable product queue and reply/facts panels. Full saved-wo
 - Distinct defaults: `gemini-3.5-flash-lite` for extraction/routing/evaluation; `gemini-3.8-flash` for wording. Reserve richer language work for Flash; validate the split with measured quality/latency.
 - Temperatures: extraction/classification 0.0; color suggestion/evaluation 0.1; CX wording 0.4; listing copy 0.7. All boundaries use JSON Schema and Pydantic; missing audit results do not count as a pass.
 - Both have published free tiers on 2 October 2026; quotas/data-use terms apply. [Official models](https://ai.google.dev/gemini-api/docs/models), [pricing.](https://ai.google.dev/gemini-api/docs/pricing)
+- Gemini 3.8 Flash uses LOW thinking, a 40-second request timeout and one attempt. Google documents LOW for its default-medium model; this bounds reasoning/wait without guaranteeing recovery. [Thinking guide.](https://ai.google.dev/gemini-api/docs/thinking) Task temperatures need provider-specific validation; Google's [migration guide](https://ai.google.dev/gemini-api/docs/whats-new-gemini-3.5) recommends default 3.x sampling.
 
 ## Cost line for planning
 
@@ -49,7 +50,7 @@ Formula: `(Lite in × 0.30 + Lite out × 2.50 + Flash in × 0.75 + Flash out × 
 
 The demo labeled every shipment older than four days delayed and suggested COD doorstep refusal. The brief gives normal four-to-seven-day delivery and no refusal rule. Corrected behavior uses overdue ETA, missing-date uncertainty, and manual cancellation. Valid JSON did not catch the policy error.
 
-The gateway returned `None` for local work while a caller read it as a model result; that fallback contract is fixed. Final approval rechecks edited content. All 60 local tests passed in 1.852s, including UI/concurrency regressions. Desktop/phone layouts were inspected. Local timing checks are implementation benchmarks; deployment confirmation remains pending.
+The local-route `None` contract is fixed and approval rechecks final edits. All 70 tests passed in 1.793s; final revision `a2c5dd9` is READY with hosted sign-in/health/recovery checks. Fast classification succeeded once; creative calls still showed mapped temporary AI-service unavailability after LOW/40s tuning (an earlier attempt showed a took-too-long message). Fact-checked fallback persisted correctly. See [release evidence](release-verification.md). Local timing is an implementation benchmark.
 
 ## MVP limits
 

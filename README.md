@@ -2,7 +2,7 @@
 
 Dhaga Ops helps listing operators and support agents turn supplier details and customer messages into reviewed work for their team. Choose a task, check the source facts, save a draft, and approve it when it is ready. Approval is an internal handoff; publishing and sending happen in your usual tools.
 
-The linked Vercel project URL is [dhaga-ops.vercel.app](https://dhaga-ops.vercel.app), with Vercel Authentication and the app password. This README describes the redesigned code; final release verification is recorded separately once completed. Orders and policy examples are synthetic; no Dhaga production systems are connected.
+The redesigned application is deployed at [dhaga-ops.vercel.app](https://dhaga-ops.vercel.app), with Vercel Authentication and the app password. Hosted sign-in, health, saved work, and exact-product recovery were checked against the deployed GitHub revision. See the [release verification record](docs/release-verification.md). Orders and policy examples are synthetic; no Dhaga production systems are connected.
 
 ## Start with one task
 
@@ -52,7 +52,7 @@ Open the local URL printed by Streamlit. Choose **Product listings** to load the
 
 The suite covers parsing/normalization, import recovery, missing and conflicting facts, routing, all sample carriers, ETA uncertainty, final approval checks, storage recovery, and CSV safety. The 50-row/90-second catalog and three-second local CX checks are implementation benchmarks, not targets supplied by the client brief or measured live AI latency.
 
-On 2 October 2026, all **60 tests passed in 1.852 seconds**, including complete local UI workflows and concurrency regressions. Browser layouts were inspected at 1440px desktop and 390px phone widths, including responsive navigation and sidebar-help contrast. Independent code review found no blocking findings in the reviewed changes. The actual shared database was checked read-only: 130 listings, 8 support cases, and no duplicate approved normalized supplier codes; no stored records were rewritten and no schema migration ran. Final deployment confirmation is still pending. No cold user study, live Gemini quality benchmark, or production Dhaga integration has been tested. The corrective [discovery and PRD review](docs/product-discovery-and-prd.md) explains the evidence, ranked problems, assumptions, acceptance criteria, and proposed pilot measurements; it was written after implementation.
+On 2 October 2026, all **70 tests passed in 1.793 seconds**, including UI, concurrency and provider-configuration regressions. Production revision `a2c5dd9` is `READY`; fresh sign-in, health, desktop/phone layouts and hosted saved-work recovery were checked. Four smokes persisted synthetic drafts without approval, sending, or changes to existing products. Fast AI classification succeeded once. Creative calls still showed mapped temporary AI-service unavailability after LOW thinking and a bounded 40-second request configuration; the fact-checked local fallback worked. See [exact release evidence and limits](docs/release-verification.md). No cold user study, live creative-quality benchmark, or production Dhaga integration has been tested. The corrective [discovery and PRD review](docs/product-discovery-and-prd.md) records evidence, assumptions, criteria and pilot measurements; it was written after implementation.
 
 ## Optional Gemini assistance
 
@@ -106,6 +106,7 @@ data/                        Synthetic products, orders and policies
 docs/product-discovery-and-prd.md  Corrective discovery, PRD, gaps and pilot plan
 docs/architecture.md         High-level design, data flow and database schema
 docs/build-note.md           Model/code choices, patterns, cost and failure learning
+docs/release-verification.md Verified code/deployment, tests, hosted checks and limits
 tests/test_acceptance.py     Implementation acceptance and regression checks
 Dockerfile.vercel            Vercel container entry point
 ```
