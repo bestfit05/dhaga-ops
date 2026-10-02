@@ -36,7 +36,7 @@ from dhaga_os.db import (
     get_listing_rows,
     workspace_counts,
 )
-from dhaga_os.exports import csv_export_bytes as _csv_export
+from dhaga_os.exports import csv_export_bytes as _csv_export, safe_spreadsheet_frame
 from dhaga_os.models import MasterColor
 from dhaga_os.navigation import WORKSPACES, WORKSPACE_KEY, prepare_workspace_widget, request_workspace
 
@@ -118,6 +118,11 @@ def _friendly_exception(exc: Exception, action: str) -> str:
 def _switch_workspace(workspace: str) -> None:
     """Defer navigation until before Streamlit creates the sidebar radio."""
     request_workspace(st.session_state, workspace)
+
+
+def _show_table(data: pd.DataFrame, **options: Any) -> None:
+    # Streamlit's table toolbar also offers CSV downloads; protect those cells.
+    st.dataframe(safe_spreadsheet_frame(data), **options)
 
 
 def _actor() -> str:
@@ -218,7 +223,7 @@ def _catalog_workspace() -> None:
     if parse_errors:
         with st.expander(f"{len(parse_errors)} unreadable rows · download the error report", expanded=True):
             error_frame = pd.DataFrame(parse_errors).rename(columns={"line": "Row number", "issue": "What needs fixing"})
-            st.dataframe(error_frame, width="stretch", hide_index=True)
+            _show_table(error_frame, width="stretch", hide_index=True)
             st.download_button("Download row error report", data=_csv_export(error_frame), file_name="dhaga_vendor_row_errors.csv", mime="text/csv")
     if database_ready:
         try:
@@ -281,12 +286,12 @@ def _catalog_workspace() -> None:
     count.caption(f"Product {position + 1} of {len(filtered)} in this view · drafts save only when you choose Save draft")
     nxt.button("Next product →", disabled=position == len(filtered)-1, on_click=_select_product, args=(list(row_index)[min(len(filtered)-1, position+1)],), width="stretch")
     with st.expander("View the full batch"):
-        st.dataframe(pd.DataFrame([{"Supplier code": row.get("vendor_sku_raw"), "Product": row.get("product_name"), "Color": row.get("standard_color") or "Choose a color", "Status": _status_label(row["status"])} for row in filtered]), hide_index=True, width="stretch")
+        _show_table(pd.DataFrame([{"Supplier code": row.get("vendor_sku_raw"), "Product": row.get("product_name"), "Color": row.get("standard_color") or "Choose a color", "Status": _status_label(row["status"])} for row in filtered]), hide_index=True, width="stretch")
         st.download_button("Download this batch for review", _csv_export(pd.DataFrame([{ "sku": row.get("vendor_sku_raw"), "product": row.get("product_name"), "color": row.get("standard_color"), "fabric": row.get("fabric_composition"), "price": row.get("price", ""), "sizes": row.get("size_values", ""), "care": row.get("wash_care", ""), "title_hinglish": (row.get("generated_copy") or {}).get("title_hinglish", ""), "description_hinglish": (row.get("generated_copy") or {}).get("description_hinglish", ""), "highlights": " | ".join((row.get("generated_copy") or {}).get("key_highlights", [])), "status": _status_label(row["status"]) } for row in records])), "dhaga_catalog_drafts.csv", "text/csv")
     record = row_index[selected]
     with st.expander("Supplier's original details · compare before approving"):
         st.caption(record.get("source_filename", "Supplier sheet"))
-        st.dataframe(pd.DataFrame([{"Field": str(k).replace("_", " ").title(), "Supplier value": str(v)} for k, v in record.get("raw_payload", {}).items()]), hide_index=True, width="stretch")
+        _show_table(pd.DataFrame([{"Field": str(k).replace("_", " ").title(), "Supplier value": str(v)} for k, v in record.get("raw_payload", {}).items()]), hide_index=True, width="stretch")
     if record["status"] == "approved":
         st.success("This product is approved and saved. Download it from Saved approvals.")
         copy = record.get("generated_copy") or {}
@@ -309,7 +314,8 @@ def _catalog_workspace() -> None:
         if record.get("model_warnings"):
             for warning in record["model_warnings"]:
                 st.warning(warning)
-        st.caption(record.get("compliance_notes") or "Listing text has not been checked yet.")
+        notes = record.get("compliance_notes") or "Listing text has not been checked yet."
+        st.caption(notes.replace("Offline rule check only.", "Material and care checks complete.").replace("deterministic check", "source comparison"))
         copy = record.get("generated_copy") or {}
         with st.form(f"listing-edit-{record['row_key']}"):
             st.subheader("Product details")
@@ -716,7 +722,7 @@ def _exports_workspace() -> None:
                         summary = [{"Supplier code": row.get("sku"), "Product": row.get("product"), "Color": row.get("standard_color"), "Price (₹)": row.get("price"), "Reviewed by": row.get("approved_by")} for row in visible]
                     else:
                         summary = [{"Order": row.get("order_id") or "Number needed", "Request": {"WISMO": "Order tracking", "RETURN_REQUEST": "Return / exchange", "CANCELLATION": "Cancellation"}.get(row.get("intent"), "Team review"), "Follow-up needed": "Yes" if row.get("agent_follow_up_required") else "No", "Reviewed by": row.get("approved_by")} for row in visible]
-                    st.dataframe(pd.DataFrame(summary), hide_index=True, width="stretch")
+                    _show_table(pd.DataFrame(summary), hide_index=True, width="stretch")
                     with st.expander("Preview approved work"):
                         selected = st.selectbox("Choose an approved " + ("product" if kind == "products" else "reply"), list(range(len(visible))), format_func=lambda index: (str(visible[index].get("sku", "")) + " · " + str(visible[index].get("product", ""))) if kind == "products" else "Order " + str(visible[index].get("order_id") or "number needed"), key="approval-preview-" + kind)
                         row = visible[selected]
@@ -767,7 +773,7 @@ def _overview_workspace() -> None:
         st.subheader("Pick up where you left off")
         recent = [{"Task": "Product review", "Item": row.get("product_name") or row.get("vendor_sku_raw") or "Unnamed product", "Status": _status_label(row["status"])} for row in drafts[:3]]
         recent += [{"Task": "Customer reply", "Item": "Order " + (row.get("order_id") or "number needed"), "Status": _status_label(row["status"])} for row in messages[:3]]
-        st.dataframe(pd.DataFrame(recent), width="stretch", hide_index=True)
+        _show_table(pd.DataFrame(recent), width="stretch", hide_index=True)
     with st.expander("First time here? A quick guide"):
         st.write("1. Choose a task and add a supplier sheet or customer message. Samples let you practice.")
         st.write("2. Check the original details, fix anything missing, and edit the suggested text.")
