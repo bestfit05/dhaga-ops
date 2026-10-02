@@ -18,13 +18,13 @@ class ModelUnavailable(RuntimeError):
 def _client():
     settings = get_settings()
     if not settings.live_models_enabled:
-        raise ModelUnavailable("Live model mode is not enabled.")
+        raise ModelUnavailable("AI help is not available. Local checks and example replies are being used.")
     try:
         from google import genai
 
         return genai.Client(api_key=settings.gemini_api_key)
     except Exception as exc:  # pragma: no cover - import and provider failures vary by environment
-        raise ModelUnavailable("Could not initialize the Gemini client.") from exc
+        raise ModelUnavailable("Gemini could not be reached. Local checks and example replies are being used.") from exc
 
 
 def generate_json(
@@ -43,11 +43,11 @@ def generate_json(
             },
         )
         if not response.text:
-            raise ModelUnavailable("The model returned an empty response.")
+            raise ModelUnavailable("Gemini did not return a reply. Local checks and example replies are being used.")
         return response_model.model_validate_json(response.text)
     except ModelUnavailable:
         raise
     except Exception as exc:  # provider exceptions must become visible workflow failures
         raise ModelUnavailable(
-            "The model request failed or returned invalid structured output."
+            "Gemini could not complete this step. Local checks or example text are being used instead."
         ) from exc

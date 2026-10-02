@@ -5,11 +5,13 @@ import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from dhaga_os.config import ROOT_DIR, get_settings
-from dhaga_os.llm import ModelUnavailable, generate_json
+from dhaga_os.llm import ModelUnavailable
+from dhaga_os.model_gateway import ModelTask, generate_for_task
 from dhaga_os.models import CXAudit, CXDraft, ParsedCustomerQuery, ParsedCustomerQueryBatch, Sentiment, TicketIntent
 from dhaga_os.policy_rag import retrieve_policies
 
@@ -23,7 +25,7 @@ ORDERS = _load_orders()
 
 def _deterministic_parse(text: str) -> ParsedCustomerQuery:
     order_match = re.search(r"\b(?:order\s*(?:id|no|number)?\s*[:#-]?\s*)?(\d{5,8})\b", text, flags=re.I)
-    phone_match = re.search(r"(?:\+?91[ -]?)?[6-9]\d{9}\b", text)
+    phone_match = re.search(r"(?<!\d)(?:\+?91[ -]?)?[6-9]\d{4}[ -]?\d{5}(?!\d)", text)
     lowered = text.casefold()
     denied_cancellation = bool(
         re.search(r"\b(?:do not|don't|dont|not)\s+(?:want\s+to\s+)?cancel\b", lowered)
@@ -41,7 +43,9 @@ def _deterministic_parse(text: str) -> ParsedCustomerQuery:
         intent = TicketIntent.ESCALATION
     elif not denied_cancellation and (direct_cancellation_request or cancellation_words):
         intent = TicketIntent.CANCELLATION
-    elif any(word in lowered for word in ("return", "exchange", "refund", "wapas", "badal", "size")):
+    elif re.search(r"\b(?:return|exchange|refund|wapas|badal)\b", lowered) or (
+        "size" in lowered and any(word in lowered for word in ("fit", "wrong", "small", "large", "problem"))
+    ):
         intent = TicketIntent.RETURN_REQUEST
     elif any(word in lowered for word in ("where", "track", "tracking", "deliver", "order", "kahan", "kab", "mila", "nahi mila", "parcel")):
         intent = TicketIntent.WISMO
@@ -76,7 +80,9 @@ def _parse(text: str) -> tuple[ParsedCustomerQuery, list[str]]:
     warnings: list[str] = []
     if settings.live_models_enabled:
         try:
-            parsed = generate_json(
+            response = generate_for_task(
+                ModelTask.MESSAGE_INTENT,
+                context={"unclear_intent": baseline.detected_intent == TicketIntent.OTHER, "message": text.strip()},
                 model=settings.gemini_fast_model,
                 temperature=0.0,
                 response_model=ParsedCustomerQueryBatch,
@@ -85,11 +91,14 @@ def _parse(text: str) -> tuple[ParsedCustomerQuery, list[str]]:
                     "Input may be Hinglish or Romanized Hindi. Never invent identifiers. Keep the output "
                     "inside the required structured schema. Ticket:\n" + text
                 ),
-            ).result
-            # Regex is authoritative for literal identifiers when the model omitted them.
-            parsed.order_id = parsed.order_id or baseline.order_id
-            parsed.phone_number = parsed.phone_number or baseline.phone_number
-            return parsed, warnings
+            )
+            if response:
+                parsed = response.result
+                # A model may classify unclear language, but identifiers must
+                # come literally from the customer or operator input.
+                parsed.order_id = baseline.order_id
+                parsed.phone_number = baseline.phone_number
+                return parsed, warnings
         except ModelUnavailable as exc:
             warnings.append(str(exc))
     return baseline, warnings
@@ -105,7 +114,10 @@ def _lookup_order(order_id: str | None, phone_number: str | None) -> dict[str, A
     if order_id:
         for order in ORDERS:
             if order["order_id"] == order_id:
+                if phone_number and re.sub(r"\D", "", order.get("phone_number", ""))[-10:] != re.sub(r"\D", "", phone_number)[-10:]:
+                    return None
                 return dict(order)
+        return None
     if phone_number:
         clean_phone = re.sub(r"\D", "", phone_number)[-10:]
         matching_orders = [
@@ -114,14 +126,8 @@ def _lookup_order(order_id: str | None, phone_number: str | None) -> dict[str, A
             if order.get("phone_number")
             and re.sub(r"\D", "", order.get("phone_number", ""))[-10:] == clean_phone
         ]
-        if matching_orders:
-            active = [
-                order
-                for order in matching_orders
-                if order.get("current_status", "").casefold() not in {"delivered", "rto initiated"}
-            ]
-            candidate = max(active or matching_orders, key=lambda item: item.get("shipped_at", ""))
-            return dict(candidate)
+        if len(matching_orders) == 1:
+            return dict(matching_orders[0])
     return None
 
 
@@ -148,16 +154,23 @@ def _carrier_facts(order: dict[str, Any]) -> dict[str, Any]:
         except (TypeError, ValueError):
             record_ok = False
     promised_date = result.get("promised_delivery_date") or ""
+    promised: date | None = None
     if promised_date:
         try:
-            date.fromisoformat(promised_date)
+            promised = date.fromisoformat(promised_date)
         except (TypeError, ValueError):
             result["promised_delivery_date"] = ""
             record_ok = False
     result["is_delayed"] = (
-        result["days_in_transit"] > 4
+        promised is not None and promised < _today_india()
         and str(result.get("current_status") or "").casefold() not in {"delivered", "rto initiated", "cancelled", "canceled"}
     )
+    result["delivery_date_overdue"] = result["is_delayed"]
+    result["date_is_missing"] = promised is None
+    parsed_url = urlparse(result["tracking_url"])
+    if parsed_url.scheme not in {"https", "http"} or not parsed_url.hostname or parsed_url.username or parsed_url.password:
+        record_ok = False
+        result["tracking_url"] = ""
     if order.get("sync_status") != "OK" or not record_ok:
         result["sync_status"] = "SYNC_FAILED"
     return result
@@ -167,20 +180,11 @@ def _fallback_reply(
     parsed: ParsedCustomerQuery, facts: dict[str, Any], policies: list[dict[str, Any]]
 ) -> CXDraft:
     policy_ids = ", ".join(policy["policy_id"] for policy in policies)
-    if (
-        parsed.detected_intent == TicketIntent.CANCELLATION
-        and facts.get("current_status", "").casefold() == "out for delivery"
-        and facts.get("payment_mode", "").casefold() == "cod"
-    ):
+    if parsed.detected_intent == TicketIntent.RETURN_REQUEST:
         reply = (
-            f"Namaste, aapka order {facts['order_id']} abhi delivery ke liye nikla hua hai. "
-            "Is stage par system se cancel nahi ho paayega. Agar aap parcel nahi lena chahte, "
-            "to delivery partner ko doorstep par bata sakte hain."
-        )
-    elif parsed.detected_intent == TicketIntent.RETURN_REQUEST:
-        reply = (
-            "Namaste, return ya exchange request ke liye Dhaga & Co. app ke Returns section mein "
-            "eligibility check karke request shuru karein. Refund return inspection ke baad process hota hai."
+            "Namaste, aapki return ya exchange request support team ko review karni hogi. "
+            "Pehle order ki eligibility confirm hogi. Return collect hone aur fulfillment centre mein "
+            "inspection ke baad hi refund process hota hai."
         )
     elif facts.get("is_delayed"):
         reply = (
@@ -188,10 +192,10 @@ def _fallback_reply(
             f"{facts['current_status'].lower()} hai aur latest scan {facts['current_location']} par hai. "
         )
         if facts.get("promised_delivery_date"):
-            reply += f"Tracking mein expected delivery {facts['promised_delivery_date']} dikh rahi hai. "
+            reply += f"Tracking mein expected delivery {facts['promised_delivery_date']} thi; latest date confirm karni hogi. "
         if facts.get("tracking_url"):
             reply += f"Tracking link: {facts['tracking_url']} "
-        reply += "Humne isse follow-up ke liye flag kiya hai."
+        reply += "Latest update ke liye support team se check karna zaroori hai."
     else:
         reply = (
             f"Namaste, aapka order {facts['order_id']} {facts['current_status'].lower()} hai. "
@@ -209,8 +213,15 @@ def _fallback_reply(
             f"ETA {facts.get('promised_delivery_date') or 'not available'}"
         ),
         policy_reference=policy_ids,
-        requires_human_escalation=bool(facts.get("is_delayed")),
-        escalation_reason="Transit exceeds four days; follow-up recommended." if facts.get("is_delayed") else "",
+        requires_human_escalation=bool(facts.get("is_delayed") or facts.get("date_is_missing") or parsed.detected_intent == TicketIntent.RETURN_REQUEST),
+        escalation_reason=(
+            "Return eligibility must be confirmed by a teammate before the customer receives any commitment."
+            if parsed.detected_intent == TicketIntent.RETURN_REQUEST
+            else "The carrier's expected delivery date has passed. A teammate should confirm the latest update."
+            if facts.get("is_delayed")
+            else "The carrier has no expected delivery date. A teammate should confirm the latest update."
+            if facts.get("date_is_missing") else ""
+        ),
     )
 
 
@@ -258,32 +269,86 @@ def _mentioned_dates(reply: str) -> tuple[list[date], bool]:
             if any(match.start() < end and match.end() > start for start, end, _ in matches):
                 continue
             add_match(match.start(), match.end(), convert(match.groups()))
+    partial_patterns = [
+        (re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b", re.I), 0, 1),
+        (re.compile(r"\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?\b", re.I), 1, 0),
+    ]
+    for pattern, day_index, month_index in partial_patterns:
+        for match in pattern.finditer(reply):
+            if any(match.start() < end and match.end() > start for start, end, _ in matches):
+                continue
+            parts = match.groups()
+            add_match(match.start(), match.end(), (_today_india().year, MONTHS[parts[month_index].casefold()[:3]], int(parts[day_index])))
     return [value for _, _, value in sorted(matches)], malformed
 
 
 def _deterministic_reply_check(reply: str, facts: dict[str, Any]) -> tuple[bool, str]:
+    if not isinstance(reply, str) or not reply.strip():
+        return False, "Add a reply before approval."
+    if len(reply) > 5000:
+        return False, "Shorten the reply to 5,000 characters or fewer."
+    promise = re.search(
+        r"\b(?:guaranteed|definitely|surely|compensation|refund(?:ed)?\s+(?:today|tomorrow|within|by)|"
+        r"(?:we\s+have|we've|has\s+been|is\s+now)\s+(?:cancelled|canceled|refunded)|"
+        r"(?:cancel|refuse|reject)\s+(?:the\s+)?(?:parcel|delivery)|doorstep)\b",
+        reply, re.I,
+    )
+    if promise:
+        return False, "The reply includes an unverified promise or cancellation action. Ask a support teammate to confirm the policy."
+    if re.search(r"\b(?:return|exchange|refund)\b.{0,60}\b\d+\s*(?:days?|hours?|weeks?)\b", reply, re.I):
+        return False, "The return or refund time window has not been confirmed by the merchant. Remove it before approval."
+    urls = re.findall(r"https?://[^\s<>]+", reply)
     if not facts:
-        if _mentioned_dates(reply)[0] or re.search(r"\b(?:Delhivery|Shiprocket|Ekart|delivered|in transit|out for delivery)\b", reply, re.I):
-            return False, "There is no tracking record yet. Keep this message to a request for the order ID or registered phone."
+        dates, malformed = _mentioned_dates(reply)
+        if dates or malformed or urls or re.search(
+            r"\b(?:Delhivery|Shiprocket|Ekart|delivered|in transit|out for delivery|"
+            r"tomorrow|today|kal|aaj|refund|cancelled|canceled|\d+\s+days?)\b", reply, re.I,
+        ):
+            return False, "There are no order details to check yet. Ask the customer for an order number or linked phone."
         return True, "This reply only asks the customer for the missing order details."
     if facts.get("sync_status") != "OK":
-        return False, "Carrier sync failed; response drafting must remain blocked."
+        return False, "The order details could not be checked. Do not prepare a reply yet."
     expected_date = facts.get("promised_delivery_date") or ""
+    expected_order = str(facts.get("order_id") or "")
+    if expected_order:
+        mentioned_orders = re.findall(r"\border\s*(?:id|number|no)?\s*[:#-]?\s*(\d{5,8})\b", reply, re.I)
+        if any(order != expected_order for order in mentioned_orders):
+            return False, "The order number in the reply does not match the checked order."
+    expected_url = str(facts.get("tracking_url") or "").rstrip("/")
+    if any(url.rstrip(".,;!)/") != expected_url for url in urls):
+        return False, "The tracking link in the reply does not match the checked courier link."
     mentioned_dates, malformed_dates = _mentioned_dates(reply)
     if malformed_dates:
         return False, "Draft contains a date that could not be checked. Use the delivery date shown in tracking."
     if mentioned_dates and (not expected_date or any(value.isoformat() != expected_date for value in mentioned_dates)):
-        return False, "Draft contains a date that does not match the carrier record."
+        return False, "The arrival date in the reply does not match the sample order."
     mentioned_carriers = re.findall(r"\b(Delhivery|Shiprocket|Ekart)\b", reply, flags=re.I)
-    if any(value.casefold() != facts["carrier_name"].casefold() for value in mentioned_carriers):
-        return False, "Draft names a different carrier from the tracking record."
-    if expected_date and re.search(r"\b(?:tomorrow|today|kal|aaj)\b", reply, re.I):
-        relative_date = _today_india() + timedelta(days=1) if re.search(r"\b(?:tomorrow|kal)\b", reply, re.I) else _today_india()
-        if relative_date.isoformat() != expected_date:
-            return False, "Draft uses a relative date that does not match the carrier record. Use the exact date instead."
+    if any(value.casefold() != str(facts.get("carrier_name") or "").casefold() for value in mentioned_carriers):
+        return False, "The courier named in the reply does not match the sample order."
+    if expected_date:
+        for expression, offset in ((r"\b(?:tomorrow|kal)\b", 1), (r"\b(?:today|aaj)\b", 0)):
+            if re.search(expression, reply, re.I) and (_today_india() + timedelta(days=offset)).isoformat() != expected_date:
+                return False, "The relative date does not match the sample order. Use its exact arrival date instead."
+        duration_match = re.search(r"\b(?:arrive|delivery|deliver|reach)\b.{0,30}\b(?:in|within)\s+(\d+)\s+days?\b", reply, re.I)
+        if duration_match and (_today_india() + timedelta(days=int(duration_match.group(1)))).isoformat() != expected_date:
+            return False, "The delivery time in the reply does not match the checked carrier date."
     if not expected_date and re.search(r"\b(?:tomorrow|today|kal|aaj|\d+\s+days?)\b", reply, re.I):
-        return False, "The carrier record has no delivery date. Remove date promises from the draft."
-    return True, "Carrier name and any delivery date in the reply match the tracking record."
+        return False, "The sample order has no delivery date. Remove date promises from the reply."
+    checked_status = str(facts.get("current_status") or "").casefold()
+    status_phrases = {
+        "delivered": (r"(?<!not )(?<!never )\bdelivered\b",),
+        "out for delivery": (r"\bout for delivery\b",),
+        "in transit": (r"\bin transit\b",),
+        "rto initiated": (r"\b(?:rto initiated|return to origin)\b",),
+    }
+    for status, patterns in status_phrases.items():
+        if status != checked_status and any(re.search(pattern, reply, re.I) for pattern in patterns):
+            return False, "The delivery status in the reply does not match the checked courier update."
+    for order in ORDERS:
+        location = str(order.get("current_location") or "")
+        if location and location.casefold() in reply.casefold() and location.casefold() != str(facts.get("current_location") or "").casefold():
+            return False, "The location in the reply does not match the checked courier update."
+    return True, "The order, courier, tracking link and any arrival date match the checked order. Review the wording before approval."
 
 
 def process_customer_ticket(
@@ -300,7 +365,7 @@ def process_customer_ticket(
             "case_id": case_id,
             "ticket_text": text,
             "status": "blocked",
-            "error": "Enter the customer's message to start triage.",
+            "error": "Paste a customer message to begin.",
             "model_warnings": warnings,
         }
 
@@ -308,6 +373,17 @@ def process_customer_ticket(
     warnings.extend(parse_warnings)
     parsed.order_id = order_id_override.strip() or parsed.order_id
     parsed.phone_number = phone_override.strip() or parsed.phone_number
+    identifier_error = ""
+    if parsed.order_id and not re.fullmatch(r"\d{5,8}", parsed.order_id):
+        identifier_error = "Enter an order number with 5 to 8 digits."
+    if parsed.phone_number:
+        digits = re.sub(r"\D", "", parsed.phone_number)
+        if digits.startswith("91") and len(digits) == 12:
+            digits = digits[2:]
+        if not re.fullmatch(r"[6-9]\d{9}", digits):
+            identifier_error = "Enter a valid 10-digit Indian phone number, optionally with +91."
+        else:
+            parsed.phone_number = digits
     order = _lookup_order(parsed.order_id, parsed.phone_number)
     base = {
         "case_id": case_id,
@@ -323,12 +399,28 @@ def process_customer_ticket(
         "requires_human_escalation": False,
         "escalation_reason": "",
     }
+    if identifier_error:
+        base.update(status="blocked", error=identifier_error, order_id=parsed.order_id)
+        return base
+    mentioned_orders = set(re.findall(r"\border\s*(?:id|number|no)?\s*[:#-]?\s*(\d{5,8})\b", text, re.I))
+    if order_id_override.strip() and mentioned_orders and order_id_override.strip() not in mentioned_orders:
+        base.update(
+            status="needs_review", error="The entered order number differs from the customer's message. Clear it or confirm the correct order before checking.",
+            requires_human_escalation=True, escalation_reason="Customer and operator order numbers do not match.", order_id=parsed.order_id,
+        )
+        return base
+    if not order_id_override.strip() and len(mentioned_orders) > 1:
+        base.update(
+            status="needs_review", error="This message names more than one order. Enter the order number to check first.",
+            requires_human_escalation=True, escalation_reason="Multiple order numbers need operator confirmation.", order_id=None,
+        )
+        return base
 
     if not parsed.order_id and not parsed.phone_number:
         base.update(
             status="needs_identifier",
-            error="Order ID or registered phone number is missing. Ask the customer for one before lookup.",
-            draft_reply="Namaste, aapka order check karne ke liye order ID ya registered phone number share kar dijiye.",
+            error="An order number or phone number linked to the order is missing. Ask the customer for one before checking.",
+            draft_reply="Namaste, aapka order check karne ke liye order number ya order se juda phone number share kar dijiye.",
             order_id=None,
         )
         return base
@@ -336,7 +428,7 @@ def process_customer_ticket(
     if parsed.detected_intent in {TicketIntent.ESCALATION, TicketIntent.OTHER}:
         base.update(
             status="needs_review",
-            error="This message is outside routine WISMO triage and needs an agent to review it.",
+            error="This message needs a support teammate to review it.",
             requires_human_escalation=True,
             escalation_reason="Intent is not a routine order-status request.",
             order_id=parsed.order_id,
@@ -346,7 +438,7 @@ def process_customer_ticket(
     if order is None:
         base.update(
             status="not_found",
-            error="No matching order exists in the demo tracking fixtures. Verify the identifier in the courier portal.",
+            error="No unique sample order matches those details. Check the order number and linked phone; use the order number if the phone has several orders.",
             order_id=parsed.order_id,
         )
         return base
@@ -363,9 +455,9 @@ def process_customer_ticket(
     if facts["sync_status"] != "OK":
         base.update(
             status="sync_failed",
-            error=f"3PL sync failure: {facts['carrier_name']} lookup needs a manual courier-portal check.",
+            error=f"The sample order details could not be checked with {facts['carrier_name']}. Check the courier system manually.",
             requires_human_escalation=True,
-            escalation_reason="Carrier tracking fixture is unavailable; no customer reply was drafted.",
+            escalation_reason="Sample tracking details are unavailable; no reply was prepared.",
         )
         return base
 
@@ -375,25 +467,32 @@ def process_customer_ticket(
     ):
         base.update(
             status="needs_review",
-            error="Tracking says delivered, but the customer says the parcel did not arrive. Check the delivery proof with the courier.",
+            error="The order says delivered, but the customer says it did not arrive. Check the delivery proof with the courier.",
             requires_human_escalation=True,
             escalation_reason="Delivered scan disputed by the customer; confirm proof of delivery before replying.",
         )
         return base
 
-    if parsed.detected_intent == TicketIntent.CANCELLATION and not (
-        facts.get("current_status", "").casefold() == "out for delivery"
-        and facts.get("payment_mode", "").casefold() == "cod"
-    ):
+    if parsed.detected_intent == TicketIntent.CANCELLATION:
         base.update(
             status="needs_review",
-            error="Check the order system for cancellation options. No cancellation has been made.",
+            error="Check the order system for cancellation options. This app has not cancelled the order.",
             requires_human_escalation=True,
-            escalation_reason="The demo policy only confirms doorstep refusal for COD orders already out for delivery.",
+            escalation_reason="Cancellation eligibility and an approved reply policy have not been provided. A teammate must check the order system.",
         )
         return base
 
     draft: CXDraft
+    reply_context = {
+        "verified_order": True,
+        "benefits_careful_wording": (
+            parsed.sentiment in {Sentiment.ANGRY, Sentiment.ANXIOUS}
+            or parsed.language in {"Hindi", "Hinglish"}
+            or facts.get("is_delayed")
+            or parsed.detected_intent in {TicketIntent.RETURN_REQUEST, TicketIntent.CANCELLATION}
+        ),
+    }
+    model_wrote_reply = False
     if settings.live_models_enabled:
         prompt_data = {
             "customer_message": text,
@@ -402,7 +501,9 @@ def process_customer_ticket(
             "retrieved_policy_clauses": [{"id": p["policy_id"], "text": p["text"]} for p in policies],
         }
         try:
-            draft = generate_json(
+            generated_draft = generate_for_task(
+                ModelTask.CUSTOMER_REPLY,
+                context=reply_context,
                 model=settings.gemini_creative_model,
                 temperature=0.4,
                 response_model=CXDraft,
@@ -414,6 +515,11 @@ def process_customer_ticket(
                     + json.dumps(prompt_data, ensure_ascii=False)
                 ),
             )
+            if generated_draft:
+                draft = generated_draft
+                model_wrote_reply = True
+            else:
+                draft = _fallback_reply(parsed, facts, policies)
         except ModelUnavailable as exc:
             warnings.append(str(exc))
             draft = _fallback_reply(parsed, facts, policies)
@@ -421,9 +527,11 @@ def process_customer_ticket(
         draft = _fallback_reply(parsed, facts, policies)
 
     passed, notes = _deterministic_reply_check(draft.draft_reply_hinglish, facts)
-    if settings.live_models_enabled:
+    if model_wrote_reply:
         try:
-            audit = generate_json(
+            audit = generate_for_task(
+                ModelTask.REPLY_REVIEW,
+                context={"model_written_reply": True},
                 model=settings.gemini_fast_model,
                 temperature=0.1,
                 response_model=CXAudit,
@@ -434,12 +542,16 @@ def process_customer_ticket(
                     + json.dumps({"carrier_facts": facts, "draft": draft.model_dump(mode="json")}, ensure_ascii=False)
                 ),
             )
-            passed = passed and audit.factual_verification_passed
-            notes = "; ".join(filter(None, [notes, audit.notes]))
+            if audit:
+                passed = passed and audit.factual_verification_passed
+                notes = "; ".join(filter(None, [notes, audit.notes]))
+            else:
+                passed = False
+                notes += " The AI facts review did not finish; a teammate must review this reply."
         except ModelUnavailable as exc:
             warnings.append(str(exc))
             passed = False
-            notes += " Model audit unavailable; manual review required."
+            notes += " An extra reply check was unavailable; a teammate must review this reply."
 
     base.update(
         status="draft_ready" if passed else "needs_review",
@@ -447,8 +559,15 @@ def process_customer_ticket(
         carrier_status_summary=draft.carrier_status_summary,
         factual_verification_passed=passed,
         verification_notes=notes,
-        requires_human_escalation=draft.requires_human_escalation or facts["is_delayed"],
-        escalation_reason=draft.escalation_reason or ("Transit exceeds four days; human follow-up required." if facts["is_delayed"] else ""),
+        requires_human_escalation=draft.requires_human_escalation or facts["is_delayed"] or facts.get("date_is_missing", False) or parsed.detected_intent == TicketIntent.RETURN_REQUEST,
+        escalation_reason=draft.escalation_reason or (
+            "Return eligibility must be confirmed by a teammate before the customer receives any commitment."
+            if parsed.detected_intent == TicketIntent.RETURN_REQUEST
+            else "The carrier's expected delivery date has passed. A teammate should confirm the latest update."
+            if facts["is_delayed"]
+            else "The carrier has no expected delivery date. A teammate should confirm the latest update."
+            if facts.get("date_is_missing") else ""
+        ),
         model_warnings=warnings,
     )
     return base

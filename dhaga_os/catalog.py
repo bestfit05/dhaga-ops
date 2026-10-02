@@ -4,15 +4,19 @@ import io
 import csv
 import json
 import re
+from collections import Counter
+from decimal import Decimal, InvalidOperation
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
-from uuid import NAMESPACE_URL, uuid4, uuid5
+from uuid import NAMESPACE_URL, uuid5
 
 import pandas as pd
 
 from dhaga_os.config import ROOT_DIR, get_settings
-from dhaga_os.llm import ModelUnavailable, generate_json
-from dhaga_os.models import CatalogAttributeBatch, CatalogAuditBatch, CatalogColorInferenceBatch, CatalogCopyBatch
+from dhaga_os.llm import ModelUnavailable
+from dhaga_os.model_gateway import ModelTask, generate_for_task
+from dhaga_os.models import CatalogAttributeBatch, CatalogAuditBatch, CatalogColorInferenceBatch, CatalogCopyBatch, MasterColor
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
@@ -143,14 +147,61 @@ def _parse_csv_rows(file_bytes: bytes) -> tuple[list[str], list[tuple[int, list[
 
     rows: list[tuple[int, list[str]]] = []
     errors: list[dict[str, Any]] = []
-    for line_number, line in enumerate(physical_lines[header_index + 1 :], start=header_index + 2):
+    # Standards-compliant parsing gets first priority: quoted fields can span
+    # lines containing any number of commas. Recovery is only for broken files.
+    complete_rows: list[tuple[int, list[str]]] = []
+    complete_errors: list[dict[str, Any]] = []
+    reader = csv.reader(io.StringIO("\n".join(physical_lines[header_index + 1:])), delimiter=delimiter, strict=True)
+    previous_line = 0
+    try:
+        for row in reader:
+            line_number = header_index + 2 + previous_line
+            previous_line = reader.line_num
+            if not any(value.strip() for value in row):
+                continue
+            if len(row) != len(headers):
+                complete_errors.append({"line": line_number, "issue": f"This row has {len(row)} fields; the header has {len(headers)}."})
+            else:
+                complete_rows.append((line_number, row))
+        return headers, complete_rows, complete_errors
+    except csv.Error:
+        pass
+    index = header_index + 1
+    while index < len(physical_lines):
+        line_number = index + 1
+        line = physical_lines[index]
+        index += 1
         if not line.strip():
             continue
         try:
             row = next(csv.reader([line], delimiter=delimiter, strict=True))
-        except csv.Error:
-            errors.append({"line": line_number, "issue": "This row has unmatched or malformed quotes."})
-            continue
+        except csv.Error as exc:
+            # A quoted description may contain newlines. Keep its starting line
+            # for operator feedback, while recovering after an unclosed quote.
+            if "unexpected end of data" not in str(exc):
+                errors.append({"line": line_number, "issue": "This row has unmatched or malformed quotes."})
+                continue
+            row = None
+            combined = line
+            while index < len(physical_lines):
+                continuation = physical_lines[index]
+                try:
+                    standalone = next(csv.reader([continuation], delimiter=delimiter, strict=True))
+                except csv.Error:
+                    standalone = []
+                if len(standalone) >= len(headers) and any(value.strip() for value in standalone):
+                    break
+                index += 1
+                combined += "\n" + continuation
+                try:
+                    row = next(csv.reader(io.StringIO(combined), delimiter=delimiter, strict=True))
+                    break
+                except csv.Error as continuation_error:
+                    if "unexpected end of data" not in str(continuation_error):
+                        break
+            if row is None:
+                errors.append({"line": line_number, "issue": "This row has unmatched or malformed quotes."})
+                continue
         if not any(value.strip() for value in row):
             continue
         if len(row) != len(headers):
@@ -163,6 +214,14 @@ def _parse_csv_rows(file_bytes: bytes) -> tuple[list[str], list[tuple[int, list[
             continue
         rows.append((line_number, row))
     return headers, rows, errors
+
+
+def _validate_upload_headers(source_headers: list[str]) -> None:
+    cleaned = [_clean_header(header) for header in source_headers]
+    if any(not header for header in cleaned):
+        raise ValueError("Every column needs a name. Remove empty header columns and upload again.")
+    if len(set(cleaned)) != len(cleaned):
+        raise ValueError("The sheet has duplicate column names. Give each column one unique name and upload again.")
 
 
 def read_vendor_upload_detailed(
@@ -182,8 +241,13 @@ def read_vendor_upload_detailed(
                 for line_number, values in csv_rows
             ]
         elif suffix in {".xlsx", ".xlsm"}:
-            frame = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
-            source_headers = [str(header) for header in frame.columns]
+            frame = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl", header=None, nrows=502, dtype=object, keep_default_na=False)
+            if frame.empty:
+                raise ValueError("The selected Excel sheet is empty.")
+            source_headers = [_cell(header) for header in frame.iloc[0].tolist()]
+            _validate_upload_headers(source_headers)
+            frame = frame.iloc[1:].copy()
+            frame.columns = source_headers
             source_records = [
                 (line_number, row)
                 for line_number, row in enumerate(frame.to_dict(orient="records"), start=2)
@@ -197,6 +261,7 @@ def read_vendor_upload_detailed(
         raise ValueError("The sheet could not be read. Check its header row and cell formatting.") from exc
     if len(source_records) > 500:
         raise ValueError("The MVP accepts up to 500 rows per upload. Split larger vendor sheets into batches.")
+    _validate_upload_headers(source_headers)
 
     header_map: dict[str, str] = {}
     mapped_targets: dict[str, str] = {}
@@ -216,6 +281,8 @@ def read_vendor_upload_detailed(
         raise ValueError("No recognized vendor columns found. Include at least SKU, product name, color, and fabric headers.")
 
     records: list[dict[str, Any]] = []
+    # Exact reuploads recover the same saved work instead of multiplying drafts.
+    import_key = stable_key_prefix or f"vendor-upload:{sha256(file_bytes).hexdigest()}"
     for line_number, source_row in source_records:
         raw_payload = _json_safe(source_row)
         normalized: dict[str, str] = {}
@@ -229,22 +296,18 @@ def read_vendor_upload_detailed(
         occasions = [tag.strip() for tag in re.split(r"[;,|/]", normalized.get("occasion_text", "")) if tag.strip()]
         issues: list[str] = []
         if not normalized.get("vendor_sku_raw"):
-            issues.append("Add the supplier SKU before approval.")
+            issues.append("Add the supplier code before approval.")
         if not normalized.get("product_name"):
             issues.append("Add the product name before approval.")
         if not normalized.get("fabric_composition"):
             issues.append("Add the fabric or material before approval.")
         if not raw_color:
-            issues.append("Choose a standard color before approval.")
+            issues.append("Choose a product color before approval.")
         elif not color:
-            issues.append("Choose the standard color that best matches this supplier shade.")
+            issues.append("Choose the product color that best matches this supplier shade.")
 
         record = {
-            "row_key": (
-                str(uuid5(NAMESPACE_URL, f"{stable_key_prefix}:{Path(filename).name}:{line_number}"))
-                if stable_key_prefix
-                else str(uuid4())
-            ),
+            "row_key": str(uuid5(NAMESPACE_URL, f"{import_key}:{line_number}")),
             "source_filename": Path(filename).name,
             "source_line_number": line_number,
             "vendor_sku_raw": normalized.get("vendor_sku_raw", ""),
@@ -270,7 +333,7 @@ def read_vendor_upload_detailed(
             "compliance_notes": "",
             "model_mode": "demo-rule-based" if not get_settings().live_models_enabled else "live",
             "model_warnings": [],
-            "status": "blocked" if any(issue.startswith(("Add the supplier SKU", "Add the product name", "Add the fabric")) for issue in issues) else "needs_review" if issues else "draft",
+            "status": "blocked" if any(issue.startswith(("Add the supplier code", "Add the product name", "Add the fabric")) for issue in issues) else "needs_review" if issues else "draft",
         }
         record["normalized_payload"] = {
             key: record[key]
@@ -281,6 +344,12 @@ def read_vendor_upload_detailed(
             )
         }
         records.append(record)
+    sku_counts = Counter(row["vendor_sku_raw"].casefold() for row in records if row["vendor_sku_raw"])
+    for record in records:
+        if sku_counts[record["vendor_sku_raw"].casefold()] > 1:
+            record["issues"].append("This supplier code appears more than once in the sheet. Give each product a unique code before approval.")
+            record["normalized_payload"]["duplicate_supplier_code"] = record["vendor_sku_raw"]
+            record["status"] = "blocked"
     if not records and not row_errors:
         raise ValueError("The sheet has a header but no data rows.")
     return records, row_errors
@@ -290,6 +359,73 @@ def read_vendor_upload(file_bytes: bytes, filename: str) -> list[dict[str, Any]]
     """Compatibility wrapper for callers that expect valid rows only."""
     records, _ = read_vendor_upload_detailed(file_bytes, filename)
     return records
+
+
+NORMALIZED_FIELDS = (
+    "vendor_sku_raw", "product_name", "product_category", "raw_color_input", "standard_color",
+    "fabric_composition", "vendor_fabric_source", "fit_silhouette", "wash_care", "vendor_care_source",
+    "size_values_raw", "size_values", "price", "occasion_tags",
+)
+REQUIRED_ISSUE_PREFIXES = (
+    "Add the supplier", "Add the product name", "Add the fabric", "Choose the product color",
+    "Choose the standard color", "Choose a standard color", "Unknown vendor shade", "Color missing",
+    "Missing vendor SKU", "Missing product name", "Mandatory missing", "Enter a valid price",
+)
+
+
+def refresh_catalog_validation(record: dict[str, Any]) -> dict[str, Any]:
+    """Refresh editable data, required-field issues and final-copy checks in place.
+
+    Call after changing row fields and generated_copy. Supplier source fields stay
+    separate from edited attributes. The returned object is the same record.
+    """
+    issues = [
+        issue for issue in record.get("issues", [])
+        if not str(issue).startswith(REQUIRED_ISSUE_PREFIXES)
+    ]
+    duplicate_source = record.get("normalized_payload", {}).get("duplicate_supplier_code")
+    if duplicate_source and _cell(record.get("vendor_sku_raw")).casefold() != str(duplicate_source).casefold():
+        issues = [issue for issue in issues if not issue.startswith("This supplier code appears more than once")]
+    required = (
+        ("vendor_sku_raw", "Add the supplier code before approval."),
+        ("product_name", "Add the product name before approval."),
+        ("fabric_composition", "Add the fabric or material before approval."),
+    )
+    for field, issue in required:
+        record[field] = _cell(record.get(field))
+        if not record[field]:
+            issues.append(issue)
+    if record.get("standard_color") not in {color.value for color in MasterColor}:
+        issues.append("Choose the product color before approval.")
+    record["size_values"] = normalize_size_values(record.get("size_values", ""))
+    price = _cell(record.get("price"))
+    if price:
+        try:
+            number = Decimal(re.sub(r"[₹,\s]", "", price))
+            if not number.is_finite() or number < 0:
+                raise InvalidOperation
+        except InvalidOperation:
+            issues.append("Enter a valid price of zero or more before approval.")
+    record["issues"] = list(dict.fromkeys(issues))
+    record.setdefault("normalized_payload", {}).update(
+        {key: record.get(key, [] if key == "occasion_tags" else "") for key in NORMALIZED_FIELDS}
+    )
+    if record.get("generated_copy"):
+        passed, notes = _deterministic_copy_check(record, record["generated_copy"])
+    else:
+        passed, notes = False, "Prepare and review the listing text before approval."
+    audit_pending = record["normalized_payload"].get("model_audit_required") and not (
+        record["normalized_payload"].get("model_audit_passed")
+        or record["normalized_payload"].get("human_source_verified")
+    )
+    if audit_pending:
+        passed = False
+        notes += " The AI facts review did not pass; compare every detail with the supplier sheet."
+    record["compliance_passed"] = passed
+    record["compliance_notes"] = notes
+    missing = any(not record.get(field) for field, _ in required)
+    record["status"] = "blocked" if missing else "needs_review" if issues or not passed else "draft"
+    return record
 
 
 def _deterministic_copy(record: dict[str, Any]) -> dict[str, Any]:
@@ -319,11 +455,11 @@ def _deterministic_copy(record: dict[str, Any]) -> dict[str, Any]:
     title = f"{occasion_phrase}: {name}"[:70]
     color_phrase = f"{color} rang" if color else "Is rang"
     description = f"{name} ka {color_phrase} aur {fabric} fabric. {occasion_phrase} pehen sakte hain."
-    highlights = [
-        f"Kapda: {fabric}",
-        f"Fit: {record.get('fit_silhouette') or 'Confirm fit details'}",
-        f"Kis mauke ke liye: {', '.join(occasion) if occasion else 'roz ke liye'}",
-    ]
+    highlights = [f"Kapda: {fabric}"]
+    if record.get("fit_silhouette"):
+        highlights.append(f"Fit: {record['fit_silhouette']}")
+    if occasion:
+        highlights.append(f"Kis mauke ke liye: {', '.join(occasion)}")
     return {
         "row_key": record["row_key"],
         "title_hinglish": title,
@@ -334,12 +470,26 @@ def _deterministic_copy(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def _deterministic_copy_check(record: dict[str, Any], copy: dict[str, Any]) -> tuple[bool, str]:
-    source_fabric = (record.get("vendor_fabric_source") or record.get("fabric_composition") or "").casefold()
-    source_care = (record.get("vendor_care_source") or record.get("wash_care") or "").casefold()
+    if not isinstance(copy, dict):
+        return False, "Prepare the listing text before approval."
+    title = _cell(copy.get("title_hinglish"))
+    description = _cell(copy.get("description_hinglish"))
+    highlights = copy.get("key_highlights", [])
+    if not title or not description or not isinstance(highlights, list) or not any(_cell(item) for item in highlights):
+        return False, "Add a title, description and at least one highlight before approval."
+    if len(title) > 70:
+        return False, "Shorten the product title to 70 characters or fewer."
+    source_fabric = str(record.get("vendor_fabric_source", record.get("fabric_composition")) or "").casefold()
+    source_care = str(record.get("vendor_care_source", record.get("wash_care")) or "").casefold()
     generated = " ".join(
         [copy.get("title_hinglish", ""), copy.get("description_hinglish", ""), *copy.get("key_highlights", [])]
     ).casefold()
     violations: list[str] = []
+    if ("pure" in generated or "100%" in generated) and "pure" not in source_fabric and "100%" not in source_fabric:
+        violations.append("The copy claims a pure fabric, but the supplier has not confirmed that composition.")
+    for claim in ("organic", "sustainable", "eco friendly", "antibacterial", "waterproof", "shrink proof", "fade resistant"):
+        if claim in generated and claim not in source_fabric:
+            violations.append(f"The copy adds the unsupported product claim ‘{claim}’.")
     for term in FABRIC_TERMS:
         if re.search(rf"\b{re.escape(term)}\b", generated) and not re.search(rf"\b{re.escape(term)}\b", source_fabric):
             source_label = record.get("vendor_fabric_source") or "no fabric listed"
@@ -369,7 +519,7 @@ def _deterministic_copy_check(record: dict[str, Any], copy: dict[str, Any]) -> t
                 break
     if violations:
         return False, "; ".join(violations)
-    return True, "The basic fabric, care and color checks passed. Review the copy before approval."
+    return True, "The fabric, care and color checks passed. Review the listing text before approval."
 
 
 def process_catalog_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -379,7 +529,7 @@ def process_catalog_records(records: list[dict[str, Any]]) -> list[dict[str, Any
         record
         for record in records
         if not any(
-            issue.startswith(("Add the fabric", "Add the supplier SKU", "Add the product name"))
+            issue.startswith(("Add the fabric", "Add the supplier code", "Add the product name"))
             for issue in record["issues"]
         )
     ]
@@ -389,7 +539,9 @@ def process_catalog_records(records: list[dict[str, Any]]) -> list[dict[str, Any
         unknown_shades = [row for row in usable if row.get("raw_color_input") and not row.get("standard_color")]
         if unknown_shades:
             try:
-                inference = generate_json(
+                inference = generate_for_task(
+                    ModelTask.COLOR_SUGGESTION,
+                    context={"unknown_color": True},
                     model=settings.gemini_fast_model,
                     temperature=0.1,
                     response_model=CatalogColorInferenceBatch,
@@ -403,54 +555,68 @@ def process_catalog_records(records: list[dict[str, Any]]) -> list[dict[str, Any
                         )
                     ),
                 )
-                inference_by_key = {item.row_key: item for item in inference.items}
-                for row in unknown_shades:
-                    inferred = inference_by_key.get(row["row_key"])
-                    if inferred:
-                        row["inferred_color"] = inferred.inferred_color.value
-                        row["color_inference_reason"] = inferred.reason
+                if inference:
+                    inference_by_key = {item.row_key: item for item in inference.items}
+                    for row in unknown_shades:
+                        inferred = inference_by_key.get(row["row_key"])
+                        if inferred:
+                            row["inferred_color"] = inferred.inferred_color.value
+                            row["color_inference_reason"] = inferred.reason
             except ModelUnavailable as exc:
                 model_warnings.append(str(exc))
-        try:
-            attribute_input = [
-                {
-                    "row_key": row["row_key"],
-                    "vendor_sku_raw": row["vendor_sku_raw"],
-                    "product_name": row["product_name"],
-                    "product_category": row["product_category"],
-                    "fabric_composition": row["fabric_composition"],
-                    "fit_silhouette": row["fit_silhouette"],
-                    "wash_care": row["wash_care"],
-                    "raw_vendor_fields": row["raw_payload"],
-                }
-                for row in usable
-            ]
-            extracted = generate_json(
-                model=settings.gemini_fast_model,
-                temperature=0.0,
-                response_model=CatalogAttributeBatch,
-                prompt=(
-                    "Normalize garment attributes for each vendor item. Preserve the vendor's stated facts; "
-                    "do not infer fiber, care, size, or fit facts that are absent. Keep row_key unchanged. "
-                    "Return empty strings or an empty occasion_tags array when a fact is missing. Input:\n"
-                    + json.dumps(attribute_input, ensure_ascii=False)
-                ),
-            )
-            by_key = {item.row_key: item for item in extracted.items}
-            for row in usable:
-                attr = by_key.get(row["row_key"])
-                if attr:
-                    for field in ("product_category", "fabric_composition", "fit_silhouette", "wash_care"):
-                        value = getattr(attr, field).strip()
-                        if value and not row.get(field):
-                            row[field] = value
-                    if attr.occasion_tags:
-                        row["occasion_tags"] = attr.occasion_tags
-                    row["normalized_payload"].update(
-                        {key: row[key] for key in ("product_category", "fabric_composition", "fit_silhouette", "wash_care", "occasion_tags")}
-                    )
-        except ModelUnavailable as exc:
-            model_warnings.append(str(exc))
+
+        attribute_candidates = [
+            row for row in usable
+            if any(not row.get(field) for field in ("product_category", "fit_silhouette", "wash_care", "occasion_tags"))
+            and any(len(str(value or "").strip()) >= 35 for value in row.get("raw_payload", {}).values())
+        ]
+        if attribute_candidates:
+            try:
+                attribute_input = [
+                    {
+                        "row_key": row["row_key"],
+                        "vendor_sku_raw": row["vendor_sku_raw"],
+                        "product_name": row["product_name"],
+                        "product_category": row["product_category"],
+                        "fabric_composition": row["fabric_composition"],
+                        "fit_silhouette": row["fit_silhouette"],
+                        "wash_care": row["wash_care"],
+                        "raw_vendor_fields": row["raw_payload"],
+                    }
+                    for row in attribute_candidates
+                ]
+                extracted = generate_for_task(
+                    ModelTask.ATTRIBUTE_EXTRACTION,
+                    context={
+                        "missing_fields": True,
+                        "useful_free_text": True,
+                    },
+                    model=settings.gemini_fast_model,
+                    temperature=0.0,
+                    response_model=CatalogAttributeBatch,
+                    prompt=(
+                        "Normalize garment attributes for each vendor item. Preserve the vendor's stated facts; "
+                        "do not infer fiber, care, size, or fit facts that are absent. Keep row_key unchanged. "
+                        "Return empty strings or an empty occasion_tags array when a fact is missing. Input:\n"
+                        + json.dumps(attribute_input, ensure_ascii=False)
+                    ),
+                )
+                if extracted:
+                    by_key = {item.row_key: item for item in extracted.items}
+                    for row in attribute_candidates:
+                        attr = by_key.get(row["row_key"])
+                        if attr:
+                            for field in ("product_category", "fabric_composition", "fit_silhouette", "wash_care"):
+                                value = getattr(attr, field).strip()
+                                if value and not row.get(field):
+                                    row[field] = value
+                            if attr.occasion_tags and not row.get("occasion_tags"):
+                                row["occasion_tags"] = attr.occasion_tags
+                            row["normalized_payload"].update(
+                                {key: row[key] for key in ("product_category", "fabric_composition", "fit_silhouette", "wash_care", "occasion_tags")}
+                            )
+            except ModelUnavailable as exc:
+                model_warnings.append(str(exc))
 
     ready = [row for row in usable if row.get("fabric_composition")]
     live_copy_by_key: dict[str, dict[str, Any]] = {}
@@ -470,7 +636,9 @@ def process_catalog_records(records: list[dict[str, Any]]) -> list[dict[str, Any
                 }
                 for row in ready
             ]
-            generated = generate_json(
+            generated = generate_for_task(
+                ModelTask.LISTING_COPY,
+                context={"ready_products": len(ready)},
                 model=settings.gemini_creative_model,
                 temperature=0.7,
                 response_model=CatalogCopyBatch,
@@ -481,10 +649,11 @@ def process_catalog_records(records: list[dict[str, Any]]) -> list[dict[str, Any
                     + json.dumps(copy_input, ensure_ascii=False)
                 ),
             )
-            live_copy_by_key = {item.row_key: item.model_dump(mode="json") for item in generated.items}
-            missing_copy_keys = {row["row_key"] for row in ready} - live_copy_by_key.keys()
-            if missing_copy_keys:
-                model_warnings.append("The creative model omitted one or more rows; local template copy used for those rows.")
+            if generated:
+                live_copy_by_key = {item.row_key: item.model_dump(mode="json") for item in generated.items}
+                missing_copy_keys = {row["row_key"] for row in ready} - live_copy_by_key.keys()
+                if missing_copy_keys:
+                    model_warnings.append("AI copy was missing for some products; a local template was used instead.")
         except ModelUnavailable as exc:
             model_warnings.append(str(exc))
 
@@ -501,7 +670,9 @@ def process_catalog_records(records: list[dict[str, Any]]) -> list[dict[str, Any
             if row["row_key"] in live_copy_by_key
         ]
         try:
-            audit = generate_json(
+            audit = generate_for_task(
+                ModelTask.LISTING_REVIEW,
+                context={"model_written_products": len(audit_input)},
                 model=settings.gemini_fast_model,
                 temperature=0.1,
                 response_model=CatalogAuditBatch,
@@ -512,7 +683,8 @@ def process_catalog_records(records: list[dict[str, Any]]) -> list[dict[str, Any
                     + json.dumps(audit_input, ensure_ascii=False)
                 ),
             )
-            audits_by_key = {item.row_key: item for item in audit.items}
+            if audit:
+                audits_by_key = {item.row_key: item for item in audit.items}
         except ModelUnavailable as exc:
             model_warnings.append(str(exc))
 
@@ -523,6 +695,10 @@ def process_catalog_records(records: list[dict[str, Any]]) -> list[dict[str, Any
             continue
         copy = live_copy_by_key.get(row["row_key"]) or _deterministic_copy(row)
         row["generated_copy"] = copy
+        row["normalized_payload"]["model_audit_required"] = row["row_key"] in live_copy_by_key
+        row["normalized_payload"]["model_audit_passed"] = bool(
+            audits_by_key.get(row["row_key"]) and audits_by_key[row["row_key"]].factual_compliance_pass
+        )
         deterministic_pass, deterministic_note = _deterministic_copy_check(row, copy)
         audit = audits_by_key.get(row["row_key"])
         if audit is not None:
@@ -530,18 +706,18 @@ def process_catalog_records(records: list[dict[str, Any]]) -> list[dict[str, Any
             if not deterministic_pass:
                 row["compliance_notes"] = deterministic_note
             elif audit.factual_compliance_pass:
-                row["compliance_notes"] = "The basic copy checks and the additional factual review passed."
+                row["compliance_notes"] = "The standard checks and an extra facts check passed."
             else:
-                row["compliance_notes"] = audit.compliance_notes or "The copy may include details missing from the supplier sheet. Check it before approval."
+                row["compliance_notes"] = audit.compliance_notes or "The listing text may include details missing from the supplier sheet. Check it before approval."
         else:
-            row["compliance_passed"] = deterministic_pass
+            row["compliance_passed"] = deterministic_pass and row["row_key"] not in live_copy_by_key
             if not deterministic_pass:
                 row["compliance_notes"] = deterministic_note
-            elif settings.live_models_enabled:
-                row["compliance_notes"] = "The basic copy checks passed, but the additional review did not finish. Check every detail before approval."
+            elif row["row_key"] in live_copy_by_key:
+                row["compliance_notes"] = "The standard checks passed, but an extra facts check did not finish. Check every detail before approval."
             else:
-                row["compliance_notes"] = "The basic fabric, care and color checks passed. Review the copy before approval."
-        audit_missing = settings.live_models_enabled and row["row_key"] not in audits_by_key
+                row["compliance_notes"] = "The fabric, care and color checks passed. Review the listing text before approval."
+        audit_missing = row["row_key"] in live_copy_by_key and row["row_key"] not in audits_by_key
         row["status"] = "needs_review" if row["issues"] or not row["compliance_passed"] or audit_missing else "draft"
         row["normalized_payload"].update(
             {key: row[key] for key in ("product_category", "fabric_composition", "fit_silhouette", "wash_care", "occasion_tags")}

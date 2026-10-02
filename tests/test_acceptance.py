@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import csv
+from datetime import date
 import io
 import os
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 os.environ["MODEL_MODE"] = "demo"
@@ -27,7 +29,112 @@ from dhaga_os.cx import (  # noqa: E402
     demo_phone_numbers,
     process_customer_ticket,
 )
-from dhaga_os.models import TicketIntent  # noqa: E402
+from dhaga_os.models import ParsedCustomerQuery, ParsedCustomerQueryBatch, TicketIntent  # noqa: E402
+from dhaga_os.model_gateway import ModelTask, generate_for_task, should_use_model  # noqa: E402
+from dhaga_os.navigation import prepare_workspace_widget, request_workspace  # noqa: E402
+
+
+class RoutingAndNavigationTests(unittest.TestCase):
+    def test_gateway_keeps_routine_inputs_local_and_routes_uncertain_work(self) -> None:
+        self.assertFalse(should_use_model(ModelTask.COLOR_SUGGESTION, {"unknown_color": False}, live_enabled=True))
+        self.assertTrue(should_use_model(ModelTask.COLOR_SUGGESTION, {"unknown_color": True}, live_enabled=True))
+        self.assertFalse(
+            should_use_model(
+                ModelTask.ATTRIBUTE_EXTRACTION,
+                {"missing_fields": True, "useful_free_text": False},
+                live_enabled=True,
+            )
+        )
+        self.assertFalse(
+            should_use_model(ModelTask.MESSAGE_INTENT, {"unclear_intent": False, "message": "Where is order 84920?"}, live_enabled=True)
+        )
+        self.assertTrue(
+            should_use_model(ModelTask.MESSAGE_INTENT, {"unclear_intent": True, "message": "Please help with this"}, live_enabled=True)
+        )
+        self.assertFalse(
+            should_use_model(ModelTask.CUSTOMER_REPLY, {"verified_order": True, "benefits_careful_wording": False}, live_enabled=True)
+        )
+        self.assertFalse(
+            should_use_model(ModelTask.CUSTOMER_REPLY, {"verified_order": True, "benefits_careful_wording": True}, live_enabled=False)
+        )
+
+    def test_gateway_does_not_call_gemini_for_a_clear_message(self) -> None:
+        with patch.dict(os.environ, {"MODEL_MODE": "live", "GEMINI_API_KEY": "test-key"}):
+            with patch("dhaga_os.model_gateway.generate_json") as call_model:
+                result = generate_for_task(
+                    ModelTask.MESSAGE_INTENT,
+                    context={"unclear_intent": False, "message": "Where is order 84920?"},
+                    model="unused-in-local-route",
+                    prompt="test",
+                    response_model=ParsedCustomerQueryBatch,
+                    temperature=0.0,
+                )
+        self.assertIsNone(result)
+        call_model.assert_not_called()
+
+    def test_gateway_calls_gemini_for_unclear_message_intent(self) -> None:
+        expected = ParsedCustomerQueryBatch(
+            result=ParsedCustomerQuery(detected_intent=TicketIntent.OTHER)
+        )
+        with patch.dict(os.environ, {"MODEL_MODE": "live", "GEMINI_API_KEY": "test-key"}):
+            with patch("dhaga_os.model_gateway.generate_json", return_value=expected) as call_model:
+                result = generate_for_task(
+                    ModelTask.MESSAGE_INTENT,
+                    context={"unclear_intent": True, "message": "Please help with this order"},
+                    model="test-model",
+                    prompt="test",
+                    response_model=ParsedCustomerQueryBatch,
+                    temperature=0.0,
+                )
+        self.assertIs(result, expected)
+        call_model.assert_called_once()
+
+    def test_navigation_selection_is_applied_before_widget_creation(self) -> None:
+        state = {"workspace": "Overview"}
+        request_workspace(state, "Customer messages")
+        self.assertEqual(prepare_workspace_widget(state), "Customer messages")
+        self.assertEqual(state["workspace_v2"], "Customer messages")
+        self.assertNotIn("workspace", state)
+
+    def test_overview_navigation_buttons_do_not_raise_streamlit_widget_errors(self) -> None:
+        from streamlit.testing.v1 import AppTest
+        from dhaga_os.db import get_engine, get_session_factory, initialize_database
+
+        keys = ("MODEL_MODE", "GEMINI_API_KEY", "DATABASE_URL", "VERCEL", "DHAGA_APP_PASSWORD", "SQLITE_PATH")
+        previous = {key: os.environ.get(key) for key in keys}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            os.environ.update(
+                {
+                    "MODEL_MODE": "demo",
+                    "GEMINI_API_KEY": "",
+                    "DATABASE_URL": "",
+                    "VERCEL": "",
+                    "DHAGA_APP_PASSWORD": "",
+                    "SQLITE_PATH": str(Path(temp_dir) / "navigation-test.sqlite"),
+                }
+            )
+            get_session_factory.cache_clear()
+            get_engine.cache_clear()
+            initialize_database.cache_clear()
+            try:
+                app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py")).run()
+                self.assertFalse(app.exception)
+                next(button for button in app.button if button.label == "Go to product listings").click().run()
+                self.assertFalse(app.exception)
+                self.assertEqual(app.radio[0].value, "Product listings")
+                app.radio[0].set_value("Overview").run()
+                next(button for button in app.button if button.label == "Go to customer messages").click().run()
+                self.assertFalse(app.exception)
+                self.assertEqual(app.radio[0].value, "Customer messages")
+            finally:
+                for key, value in previous.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+                get_session_factory.cache_clear()
+                get_engine.cache_clear()
+                initialize_database.cache_clear()
 
 
 class CatalogAcceptanceTests(unittest.TestCase):
@@ -177,7 +284,8 @@ class CustomerSupportAcceptanceTests(unittest.TestCase):
         self.assertEqual(result["status"], "draft_ready")
 
     def test_delayed_northeast_reply_has_verified_date_and_tracking_link(self) -> None:
-        result = process_customer_ticket("Bhaiya order 84920 kahan hai? Abhi tak nahi mila.")
+        with patch("dhaga_os.cx._today_india", return_value=date(2026, 10, 4)):
+            result = process_customer_ticket("Bhaiya order 84920 kahan hai? Abhi tak nahi mila.")
         self.assertTrue(result["carrier_facts"]["is_delayed"])
         self.assertTrue(result["requires_human_escalation"])
         self.assertIn(result["carrier_facts"]["promised_delivery_date"], result["draft_reply"])
@@ -197,9 +305,9 @@ class CustomerSupportAcceptanceTests(unittest.TestCase):
 
     def test_cod_cancellation_and_unsupported_cancellation_paths(self) -> None:
         cod = process_customer_ticket("Please cancel order 84921. I do not want it.")
-        self.assertEqual(cod["status"], "draft_ready")
-        self.assertIn("doorstep", cod["draft_reply"])
-        self.assertNotIn("refund", cod["draft_reply"].casefold())
+        self.assertEqual(cod["status"], "needs_review")
+        self.assertTrue(cod["requires_human_escalation"])
+        self.assertFalse(cod.get("draft_reply"))
         unsupported = process_customer_ticket("Please cancel order 84922.")
         self.assertEqual(unsupported["status"], "needs_review")
         self.assertTrue(unsupported["requires_human_escalation"])
@@ -209,7 +317,8 @@ class CustomerSupportAcceptanceTests(unittest.TestCase):
         result = process_customer_ticket("I want to return order 84930 because the size does not fit.")
         self.assertEqual(result["parsed_query"]["detected_intent"], "RETURN_REQUEST")
         self.assertFalse(result["carrier_facts"]["is_delayed"])
-        self.assertIn("Returns section", result["draft_reply"])
+        self.assertIn("inspection", result["draft_reply"])
+        self.assertTrue(result["requires_human_escalation"])
 
     def test_disputed_delivery_is_escalated_without_a_customer_reply(self) -> None:
         result = process_customer_ticket("Order 84924 says delivered but I have not received it.")
@@ -292,7 +401,7 @@ class DatabaseApprovalTests(unittest.TestCase):
                 "fabric_composition": "Cotton",
                 "standard_color": "Red",
             },
-            "generated_copy": {"title_hinglish": "Test kurta"},
+            "generated_copy": {"title_hinglish": "Test kurta", "description_hinglish": "Cotton kurta in Red.", "key_highlights": ["Cotton fabric"]},
             "compliance_passed": False,
             "issues": [],
             "status": "needs_review",

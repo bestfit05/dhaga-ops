@@ -7,36 +7,50 @@
 | CSV/XLSX parsing and header aliases | Python / pandas | Deterministic file handling and row-level errors |
 | Known color spelling normalization | Python dictionary | Exact mapping to the 24-color master palette |
 | Unknown shade suggestion | Gemini fast model in live mode | Regional color terms need semantic interpretation; suggestion remains unconfirmed |
-| Fabric, silhouette, care, and occasion normalization | Gemini fast model in live mode | Converts messy source-shaped fields into structured attributes |
+| Missing attributes in useful free text | Gemini fast model when fields are missing | Skip calls when source values are already clear |
 | Occasion-led Hinglish copy | Gemini creative model in live mode | Language and audience adaptation require generation |
 | Copy factuality review | Gemini fast model plus deterministic fabric/care term check | Evaluator step can reject claims that conflict with vendor source |
-| Hinglish intent and identifier parsing | Regex first, Gemini fast model when enabled | Identifier matching remains exact; model handles varied phrasing |
-| Carrier lookup, transit days, delay flag | Python over mock JSON records | Lookup and date arithmetic are deterministic |
-| Policy retrieval | Local term-vector cosine similarity | Tiny policy set; no embedding service or vector database is needed for the demo |
-| CX reply drafting | Gemini creative model in live mode | Produces concise customer-facing language grounded in known facts |
-| Carrier/date audit | Gemini fast model plus deterministic comparison | Conflicting dates/carriers remain blocked for human review |
-| Approval and exports | Python + SQLAlchemy | Staging actions and audit events are inspectable and repeatable |
+| Message intent and identifiers | Rules/regex; Gemini for unclear intent | Literal identifiers remain authoritative |
+| Carrier lookup and ETA checks | Python over mock JSON records | Exact/unique identifier matching; active shipment is overdue only after a supplied ETA passes |
+| Policy retrieval | Local term-vector cosine similarity | Four example rules need no embedding service |
+| CX reply drafting | Local routine template; optional Gemini for supported sensitive/multilingual replies | Cancellation/dispute requires a teammate; unknown policies are not invented |
+| Reply fact check | Deterministic comparison always; Gemini only for Gemini-written text | Check known identifiers, dates, courier, link, status/location and unsupported promises |
+| Approval and exports | Python + SQLAlchemy | Recheck final edits in the transaction, protect approvals, record content hashes, export safe Unicode CSV |
 
-The prompt chain is normalization → copy → audit for catalog rows. CX routing precedes exact carrier lookup, policy retrieval, reply drafting, and factual audit. These stages are separate so the system can stop on missing data, sync failures, or factual mismatches instead of sending an unsupported answer. Demo mode replaces all model calls with transparent local rules and template drafts.
+The gateway checks task need before calling Gemini. Catalog generation uses only source-shaped fields; routine CX lookup/replies remain local. Demo mode uses templates and makes no model calls. Human source review remains required.
+
+## Patterns and operator workflow
+
+**Routing** keeps clear work local and sends unsupported requests to a teammate. Without it, routine work incurs calls and cancellation can get unsafe generic wording. **Prompt chaining** passes standardized facts into copy and evaluation; otherwise writer and reviewer lack a consistent source. Evaluation is one check, not an autonomous repair loop.
+
+The UI provides a searchable product queue and reply/facts panels. Full saved-work lists and complete listing exports retain previous work. Drafts save separately from approval. Exact reuploads recover saved work; revision tokens/conditional writes and row/SKU locks prevent stale or conflicting writes. Approval rechecks final text and records the self-reported reviewer.
 
 ## Model configuration
 
-- Fast and creative demo roles both default to `gemini-3.1-flash-lite`; the same model handles extraction, routing, copy drafting, and evaluation at their configured temperatures.
-- Gemini's published free tier currently lists `gemini-3.1-flash-lite` as free of charge. Quotas and rate limits apply, and Google marks free-tier prompts and responses as usable to improve its products. Use synthetic demo data only. Review [current pricing and data-use terms](https://ai.google.dev/gemini-api/docs/pricing) before enabling it with real customer or supplier information.
-- The response schema is validated with Pydantic after each model boundary. Model IDs are configurable because availability and pricing change.
+- Distinct defaults: `gemini-3.5-flash-lite` for extraction/routing/evaluation; `gemini-3.8-flash` for wording. Reserve richer language work for Flash; validate the split with measured quality/latency.
+- Temperatures: extraction/classification 0.0; color suggestion/evaluation 0.1; CX wording 0.4; listing copy 0.7. All boundaries use JSON Schema and Pydantic; missing audit results do not count as a pass.
+- Both have published free tiers on 2 October 2026; quotas/data-use terms apply. [Official models](https://ai.google.dev/gemini-api/docs/models), [pricing.](https://ai.google.dev/gemini-api/docs/pricing)
 
 ## Cost line for planning
 
-This is a planning estimate for a separate standard paid configuration, not a measured bill or the free demo default. It uses assumed token counts because no provider key or real model usage is configured yet. The estimate uses the current listed rates of $0.25 per million fast-model input tokens and $1.50 per million fast-model output tokens, plus $2 per million Pro input tokens and $12 per million Pro output tokens for prompts up to 200k tokens. The provider may count reasoning tokens as output. See [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing).
+**Rules-only model cost: $0.** Hosting/storage/review are separate. Live usage, cost, latency, and quality remain unmeasured.
 
-| Run | Assumed tokens per run | Estimated cost / run | Dhaga volume | Estimated weekly model cost |
+Illustrative paid scenario: assume the total tokens below, no retries, and output including billed thinking. Standard prices per million tokens: Lite $0.30 input/$2.50 output; Flash $0.75/$3.75 through 31 December 2026, higher in 2027. [Google pricing, checked 2 October 2026.](https://ai.google.dev/gemini-api/docs/pricing)
+
+| Run | Assumed total tokens per run | Illustrative cost/run | Assumed weekly runs | Illustrative weekly cost |
 |---|---|---:|---:|---:|
-| One catalog SKU | Fast: 425 input + 90 output; Pro: 250 input + 150 output | $0.00254 | 400 SKUs / week | $1.02 |
-| One WISMO ticket | Fast: 850 input + 180 output; Pro: 800 input + 150 output | $0.00388 | 5,220 tickets / week | $20.27 |
-| **Combined** | Assumptions above | — | — | **$21.29 / week** |
+| One AI-assisted description | Lite: 425 in + 90 out; Flash: 250 in + 150 out | $0.0011025 | 200 descriptions | $0.22 |
+| One AI-assisted WISMO ticket | Lite: 850 in + 180 out; Flash: 800 in + 150 out | $0.0018675 | 5,220 tickets | $9.75 |
+| **Illustrative combined** | Every listed run uses AI | — | — | **$9.97** |
 
-Formula: `(fast input × $0.25 + fast output × $1.50 + Pro input × $2 + Pro output × $12) / 1,000,000`. The workload uses two fast-model calls and one Pro call per CX ticket. A catalog batch groups model calls across rows, so the per-SKU estimate amortizes the shared prompt overhead. Unknown-color suggestions, retries, model thinking tokens beyond the assumed outputs, taxes, Vercel, PostgreSQL, and FX conversion are excluded. Replace these assumptions with the usage metadata from real runs before presenting a committed cost target.
+Formula: `(Lite in × 0.30 + Lite out × 2.50 + Flash in × 0.75 + Flash out × 3.75) / 1,000,000`. Addressable WISMO is `9,000 × 58% = 5,220/week`. The brief separately reports 200 descriptions and 400 new SKUs; generating all 400 would give ~$10.19/week combined. Actual eligibility/calls, batch overhead, unknown-color calls, retries, taxes, hosting, and FX differ. Replace assumptions with provider usage before committing a target.
+
+## Failure learning and validation limits
+
+The demo labeled every shipment older than four days delayed and suggested COD doorstep refusal. The brief gives normal four-to-seven-day delivery and no refusal rule. Corrected behavior uses overdue ETA, missing-date uncertainty, and manual cancellation. Valid JSON did not catch the policy error.
+
+The gateway returned `None` for local work while a caller read it as a model result; that fallback contract is fixed. Final approval rechecks edited content. All 60 local tests passed in 1.852s, including UI/concurrency regressions. Desktop/phone layouts were inspected. Local timing checks are implementation benchmarks; deployment confirmation remains pending.
 
 ## MVP limits
 
-The case brief asks for a small honest build. This repo makes no claim of production Freshdesk, Gupshup, Unicommerce, or courier integration. The PRD's sample RICE scores and baseline numbers are product context, not app telemetry. Real policy snippets, access control, data retention, migration history, provider usage logging, deployment URL, and acceptance measurements still need owner review before a client pilot.
+No production integration, cold user study, or accessibility audit was tested. Policies/data are synthetic; reviewer identity is self-reported. The [discovery/PRD review](product-discovery-and-prd.md) was written after implementation. Approved policy, real-data controls, metering, and owner-led pilots remain prerequisites.

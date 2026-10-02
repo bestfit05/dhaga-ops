@@ -1,0 +1,71 @@
+/* Dhaga's operator workspace: calm paper surfaces, ink navigation, saffron actions. */
+:root { --ink:#1e3035; --muted:#536569; --accent:#a84321; --paper:#f7f7f2; }
+.stApp { background:var(--paper); color:var(--ink); }
+html, body, [data-testid="stMarkdownContainer"], button, input, textarea { font-family: "Inter", "Segoe UI", sans-serif; }
+[data-testid="stMainBlockContainer"] { max-width:1400px; padding:2rem 3rem 4rem; }
+[data-testid="stHeader"] { background:transparent; }
+[data-testid="stToolbar"] [data-testid="stBaseButton-header"], [data-testid="stMainMenuButton"] { display:none; }
+[data-testid="stExpandSidebarButton"]::after { content:"Menu"; font-size:14px; margin-left:6px; color:#1e3035; }
+[data-testid="stExpandSidebarButton"] { min-height:42px; padding:6px 12px; background:#eaf0e6; border-radius:8px; }
+[data-testid="stSidebar"] { background:#1e3035; border-right:0; }
+[data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-top:1rem; }
+[data-testid="stSidebar"] * { color:#eef2eb; }
+[data-testid="stSidebar"] input { color:#1e3035; }
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] * { color:#bccbc5; }
+[data-testid="stSidebar"] [role="radiogroup"] { gap:.5rem; }
+[data-testid="stSidebar"] [role="radiogroup"] label { padding:.75rem .8rem; border-radius:8px; }
+[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) { background:#3c514e; }
+[data-testid="stSidebar"] [data-testid="stTextInput"] [data-baseweb="input"] { background:#fff; }
+[data-testid="stSidebar"] button { background:#3c514e; border-color:#657975; }
+[data-testid="stSidebar"] [data-testid="stExpander"] { background:#2b4144; border-color:#657975; }
+h1,h2,h3 { color:var(--ink); letter-spacing:-.035em; }
+h1 { font-size:2.35rem !important; font-weight:650 !important; }
+h2 { font-size:1.75rem !important; }
+h3 { font-size:1.14rem !important; }
+p, label { font-size:1rem; }
+[data-testid="stCaptionContainer"] p { color:var(--muted); font-size:.875rem; }
+[data-testid="stVerticalBlock"] { gap:.8rem; }
+[data-testid="stVerticalBlockBorderWrapper"] { background:#fff; border-radius:12px; border-color:#dce2db; }
+[data-testid="stForm"] { background:#fff; padding:1.2rem; border:1px solid #dce2db; border-radius:12px; }
+[data-testid="stMetric"] { padding:1rem 1.1rem; border:1px solid #dce2db; border-radius:10px; background:#fff; }
+[data-testid="stMetricLabel"] p { font-size:.875rem; color:#536569; }
+[data-testid="stMetricValue"] { font-size:1.8rem; font-weight:600; }
+.stButton button, .stDownloadButton button, .stLinkButton a { border-radius:8px; min-height:42px; font-weight:550; }
+button[kind="primary"], [data-testid="stBaseButton-primaryFormSubmit"] { background:#a84321; border-color:#a84321; color:white; }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline:3px solid #cb7b32 !important; outline-offset:3px; }
+[data-testid="stAlert"] { border-radius:8px; }
+[data-testid="stExpander"] { background:#fff; border-radius:10px; }
+[data-testid="stDataFrame"] { border:1px solid #dce2db; border-radius:10px; }
+.brand { display:flex; align-items:center; gap:12px; margin:.5rem 0 1.8rem; }
+.brand-mark { display:grid; place-items:center; background:#e7b774; color:#1e3035 !important; width:42px; height:42px; border-radius:12px; font-size:25px; font-family:Georgia,serif; }
+.brand-name { font-size:23px; font-weight:600; letter-spacing:-.04em; }
+.brand-caption { font-size:13px; color:#bccbc5 !important; margin-top:2px; }
+.eyebrow { font-size:12px; letter-spacing:.13em; font-weight:650; color:#8d4a2e; text-transform:uppercase; margin-bottom:8px; }
+[data-testid="stMarkdownContainer"] .page-title { font-family:Georgia,"Times New Roman",serif; font-size:42px !important; font-weight:400 !important; letter-spacing:-.035em; line-height:1.14; margin:0 0 10px; }
+.page-description { font-size:16px; color:#536569; margin:0 0 1.2rem; max-width:760px; }
+.topline { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-bottom:16px; margin-bottom:26px; border-bottom:1px solid #dce2db; font-size:14px; color:#536569; }
+.mode-pill { border:1px solid #cfdbce; background:#eaf0e6; color:#3f5745; border-radius:30px; padding:5px 12px; font-size:12px; white-space:nowrap; }
+.task-icon { width:42px; height:42px; border-radius:10px; background:#f5e8d7; color:#8a432a; display:grid; place-items:center; font-size:24px; margin:4px 0 18px; }
+.task-icon.teal { background:#e6efeb; color:#345d51; }
+.task-label { font-size:12px; font-weight:650; letter-spacing:.11em; text-transform:uppercase; color:#7c624c; margin-bottom:8px; }
+.task-title { font-size:24px; font-weight:600; letter-spacing:-.04em; margin:0 0 10px; }
+.task-description { color:#536569; margin:0 0 16px; line-height:1.55; }
+.step-bar { display:flex; gap:10px; flex-wrap:wrap; padding:12px 0 20px; }
+.step { color:#536569; font-size:14px; padding:8px 12px; background:#edf0e9; border-radius:8px; }
+.step.active { background:#1e3035; color:#fff; }
+.empty-state { padding:22px; border:1px dashed #c8d4c8; border-radius:10px; background:#f0f4ed; margin:10px 0; }
+.empty-title { font-weight:600; font-size:17px; margin-bottom:6px; }
+.empty-copy { font-size:14px; color:#536569; line-height:1.6; }
+.source-cell { color:#536569; font-size:14px; margin:0 0 6px; }
+.source-value { color:#1e3035; font-size:16px; font-weight:550; }
+@media (max-width:900px) { [data-testid="stMainBlockContainer"] { padding:1.5rem 1.3rem 3rem; } [data-testid="stMarkdownContainer"] .page-title { font-size:34px !important; } }
+@media (max-width:640px) { [data-testid="stHorizontalBlock"] { flex-wrap:wrap; gap:12px; } [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { width:100% !important; flex:1 1 100% !important; min-width:0 !important; } .topline { align-items:flex-start; font-size:12px; } [data-testid="stMarkdownContainer"] .page-title { font-size:30px !important; } .step { font-size:12px; } }
+@media (prefers-reduced-motion:reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } }
+@media (max-width:640px) {
+  [data-testid="stMainBlockContainer"] { padding-top:4.5rem; }
+  [data-testid="stHorizontalBlock"]:has([data-testid="stMetric"]) { flex-wrap:nowrap; gap:8px; }
+  [data-testid="stHorizontalBlock"]:has([data-testid="stMetric"]) > [data-testid="stColumn"] { width:33% !important; flex:1 1 0 !important; }
+  [data-testid="stMetric"] { padding:.75rem .6rem; }
+  [data-testid="stMetricLabel"] p { font-size:14px; white-space:normal; }
+  [data-testid="stMetricValue"] { font-size:24px; }
+}

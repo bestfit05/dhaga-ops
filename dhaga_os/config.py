@@ -43,8 +43,8 @@ def get_settings() -> Settings:
     return Settings(
         model_mode=os.getenv("MODEL_MODE", "demo").strip().lower(),
         gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
-        gemini_fast_model=os.getenv("GEMINI_FAST_MODEL", "gemini-3.1-flash-lite").strip(),
-        gemini_creative_model=os.getenv("GEMINI_CREATIVE_MODEL", "gemini-3.1-flash-lite").strip(),
+        gemini_fast_model=os.getenv("GEMINI_FAST_MODEL", "gemini-3.5-flash-lite").strip(),
+        gemini_creative_model=os.getenv("GEMINI_CREATIVE_MODEL", "gemini-3.8-flash").strip(),
         database_url=database_url,
         sqlite_path=sqlite_path,
         app_password=os.getenv("DHAGA_APP_PASSWORD", ""),

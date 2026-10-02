@@ -9,18 +9,18 @@
     "policy_id": "DELAY-01",
     "title": "Delayed shipment and follow-up",
     "keywords": ["delay", "late", "days", "north", "east", "guwahati", "sorry", "apology", "follow", "transit", "northeast"],
-    "text": "For a shipment in transit for more than four days, acknowledge the delay, apologize, give the verified latest carrier milestone and its promised date when available, and flag the case for human follow-up. Do not promise compensation."
+    "text": "Typical client delivery takes 4–7 days and may take longer in the northeast. Transit duration alone does not confirm a delay. When the carrier's expected date has passed, acknowledge the missed estimate and flag the case for a teammate to check the latest update. A carrier estimate is not a guaranteed date. Do not invent compensation or claim that a follow-up has already been assigned."
   },
   {
     "policy_id": "COD-CANCEL-01",
-    "title": "COD cancellation after dispatch",
+    "title": "Cancellation needs a teammate",
     "keywords": ["cancel", "cancellation", "cod", "cash", "doorstep", "out", "delivery", "nahi", "chahiye"],
-    "text": "For a COD parcel already out for delivery, explain that the customer can tell the delivery partner at the doorstep that they do not want the parcel. Do not claim the order can be cancelled in the system after dispatch."
+    "text": "The client brief does not specify cancellation eligibility or approved cancellation instructions. Ask a support teammate to check the order system and confirm the merchant's policy. Do not say the order has been cancelled, advise refusing a parcel, or promise a refund."
   },
   {
     "policy_id": "RETURN-01",
     "title": "Return or exchange request",
     "keywords": ["return", "exchange", "refund", "size", "fit", "wapas", "badal", "policy"],
-    "text": "Acknowledge the return or exchange request and direct the customer to the Returns section in the Dhaga & Co. app to check eligibility and start the request. Refunds are issued after the return is inspected at the fulfillment center. Confirm the current eligibility window in the app; do not invent one."
+    "text": "The client brief says returns are collected and inspected at the fulfillment center, with refunds issued after inspection. It does not specify a return window or order eligibility. Acknowledge the request and ask a support teammate to confirm eligibility before making any commitment. Do not invent a return window, a refund date, or a customer application flow."
   }
 ]
