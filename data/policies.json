@@ -1,0 +1,26 @@
+[
+  {
+    "policy_id": "WISMO-01",
+    "title": "Order tracking and expected delivery",
+    "keywords": ["wismo", "where", "order", "track", "tracking", "delivery", "status", "kahan", "kab", "parcel", "shipment"],
+    "text": "Share only the carrier status, current location, and promised delivery date shown in the tracking record. If the tracking record has no promised date, do not invent one."
+  },
+  {
+    "policy_id": "DELAY-01",
+    "title": "Delayed shipment and follow-up",
+    "keywords": ["delay", "late", "days", "north", "east", "guwahati", "sorry", "apology", "follow", "transit", "northeast"],
+    "text": "For a shipment in transit for more than four days, acknowledge the delay, apologize, give the verified latest carrier milestone and its promised date when available, and flag the case for human follow-up. Do not promise compensation."
+  },
+  {
+    "policy_id": "COD-CANCEL-01",
+    "title": "COD cancellation after dispatch",
+    "keywords": ["cancel", "cancellation", "cod", "cash", "doorstep", "out", "delivery", "nahi", "chahiye"],
+    "text": "For a COD parcel already out for delivery, explain that the customer can tell the delivery partner at the doorstep that they do not want the parcel. Do not claim the order can be cancelled in the system after dispatch."
+  },
+  {
+    "policy_id": "RETURN-01",
+    "title": "Return or exchange request",
+    "keywords": ["return", "exchange", "refund", "size", "fit", "wapas", "badal", "policy"],
+    "text": "Acknowledge the return or exchange request and direct the customer to the Returns section in the Dhaga & Co. app to check eligibility and start the request. Refunds are issued after the return is inspected at the fulfillment center. Confirm the current eligibility window in the app; do not invent one."
+  }
+]

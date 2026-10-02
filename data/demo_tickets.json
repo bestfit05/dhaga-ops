@@ -1,0 +1,77 @@
+[
+  {
+    "scenario": "Delayed delivery · Hinglish",
+    "order_id": "84920",
+    "message": "Bhaiya mera order 84920 kahan hai? Abhi tak nahi mila."
+  },
+  {
+    "scenario": "COD cancellation · out for delivery",
+    "order_id": "84921",
+    "message": "Please cancel order 84921. The COD parcel is out for delivery and I do not want it now."
+  },
+  {
+    "scenario": "Routine tracking · English",
+    "order_id": "84922",
+    "message": "Could you track order 84922 and share the expected delivery date?"
+  },
+  {
+    "scenario": "Carrier sync failure",
+    "order_id": "84923",
+    "message": "Where is parcel 84923? Tracking is not showing anything."
+  },
+  {
+    "scenario": "Marked delivered · customer says not received",
+    "order_id": "84924",
+    "message": "My order 84924 shows delivered, but I have not received it. Can you check?"
+  },
+  {
+    "scenario": "Delayed shipment · anxious customer",
+    "order_id": "84925",
+    "message": "Order 84925 is late and I am worried. Please share an update."
+  },
+  {
+    "scenario": "Delivery attempt",
+    "order_id": "84926",
+    "message": "Delivery was attempted for order 84926. What should I do now?"
+  },
+  {
+    "scenario": "Routine tracking · Hinglish",
+    "order_id": "84927",
+    "message": "Mera order 84927 kab tak milega?"
+  },
+  {
+    "scenario": "Northeast delay · event deadline",
+    "order_id": "84928",
+    "message": "Order 84928 bahut late hai. Kal function hai, please bataiye parcel kahan hai."
+  },
+  {
+    "scenario": "COD cancellation · second carrier",
+    "order_id": "84929",
+    "message": "I want to cancel order 84929. It is COD and out for delivery."
+  },
+  {
+    "scenario": "Return · size issue",
+    "order_id": "84930",
+    "message": "I want to return order 84930 because the size does not fit."
+  },
+  {
+    "scenario": "Routine tracking · delivered order",
+    "order_id": "84931",
+    "message": "Can you confirm the status of order 84931?"
+  },
+  {
+    "scenario": "Missing identifier",
+    "order_id": "",
+    "message": "Where is my order? I placed it last week."
+  },
+  {
+    "scenario": "Unknown order identifier",
+    "order_id": "99999",
+    "message": "Can you track order 99999?"
+  },
+  {
+    "scenario": "Complaint · human review",
+    "order_id": "84921",
+    "message": "I have a serious complaint about order 84921. This feels like fraud; I need a manager."
+  }
+]

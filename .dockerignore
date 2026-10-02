@@ -1,0 +1,16 @@
+.agents/
+.git/
+.vercel/
+.env
+.env.*
+.streamlit/secrets.toml
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.pdf
+*.db
+*.sqlite3
+var/
+tests/
+docs/
