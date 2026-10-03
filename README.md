@@ -56,7 +56,7 @@ Open the local URL printed by Streamlit. Choose **Product listings** to load the
 
 The suite covers parsing/normalization, import recovery, missing and conflicting facts, routing, all sample carriers, ETA uncertainty, final approval checks, storage recovery, and CSV safety. Current UI/queue regressions also cover exact overview metrics, high/low-risk partitioning, filtered-queue navigation and the Freshdesk demo link. The 50-row/90-second catalog and three-second local CX checks are implementation benchmarks, not targets supplied by the client brief or measured live AI latency.
 
-The 3 October MVP update passed **84 tests in 3.210 seconds**; an independent backend run passed the same 84 tests in 3.201 seconds. Independent review verified return-queue false-positive fixes and reported no remaining blocking findings. Runtime commit `089a5ba4b177a818668f2d47632fc953b26e1732` was pushed to `origin/main` and its matching Vercel deployment is **READY**, aliased to the production URL. Anonymous page and health requests returned HTTP 200 without redirects. A fresh browser opened Overview directly; risk, return, approved-reply and product metrics opened matching queues. An existing approved reply's Freshdesk demo link opened the official homepage. Hosted checks performed no record writes or AI calls; see the [current release record](docs/release-verification.md).
+The latest 3 October update passed **99 tests in 3.735 seconds**, including the eight fresh message routes, separate paraphrases, model-call gates, approval checks, roadmap navigation and explicit example loading. Independent review found no remaining actionable issue. Runtime commit `c86a85d70c27184dbcc3d70388a0d5af4adf9d4b` was pushed to `origin/main`; its matching Vercel production deployment is **READY**. Anonymous health and sample CSV requests returned HTTP 200. The hosted browser saved the correct 26-product CSV and opened the four-phase roadmap and fresh-example picker. Local re-upload of the downloaded file produced 26 products; the disputed-delivery example required investigation. These checks did not train model weights, call live Gemini or approve/send a customer reply. See the [current and historical release record](docs/release-verification.md).
 
 The earlier release on 2 October 2026 passed **70 tests in 1.793 seconds**, including UI, concurrency and provider-configuration regressions, and deployed revision `a2c5dd9` was `READY`. Its authenticated access, health, desktop/phone layouts and saved-work recovery were checked. Four smokes persisted synthetic drafts without approval, sending, or changes to existing products. Fast AI classification succeeded once; creative calls showed mapped temporary AI-service unavailability, with a working fact-checked fallback. These are historical results, not verification of the new navigation/queue update. See [current and historical release evidence](docs/release-verification.md). No cold user study, live creative-quality benchmark, or production Dhaga integration has been tested. The corrective [discovery and PRD review](docs/product-discovery-and-prd.md) was written after implementation.
 
@@ -109,12 +109,14 @@ The example-sheet download uses the same-origin static URL `/app/static/dhaga_ve
 app.py                       Streamlit workspaces and operator screens
 dhaga_os/catalog.py          Supplier parsing, normalization, copy and checks
 dhaga_os/cx.py               Ticket routing, sample lookup, replies and fact checks
+dhaga_os/cx_examples.py      Identifier-free prompt examples and picker data
 dhaga_os/policy_rag.py       Local policy ranking
 dhaga_os/llm.py              Structured Gemini boundary
 dhaga_os/db.py               SQLAlchemy tables, approval and recovery queries
 dhaga_os/queues.py           Shared customer queue filters and exact overview counts
 dhaga_os/exports.py          Unicode CSV output and formula-like text handling
-data/                        Synthetic order records, color dictionary and policies
+data/                        Synthetic orders, color dictionary, policies and CX examples
+data/cx_examples.json        Eight labeled fresh customer messages
 static/dhaga_vendor_sample.csv Canonical 26-product sample for loading and downloading
 docs/product-discovery-and-prd.md  Corrective discovery, PRD, gaps and pilot plan
 docs/architecture.md         High-level design, data flow and database schema

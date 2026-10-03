@@ -2,7 +2,7 @@
 
 This record distinguishes each release's local regression tests, hosted operational checks, and remaining validation.
 
-## Sample download, Future scopes and fresh-message update — hosted verification pending
+## Sample download, Future scopes and fresh-message update — 3 October 2026
 
 The canonical supplier example moved to `static/dhaga_vendor_sample.csv`. Its bytes are unchanged: **2,969 bytes and 26 products**. Demo loading and the download now use the same file. **Download example sheet** links directly to the same-origin `/app/static/dhaga_vendor_sample.csv`, served with Streamlit static serving enabled; it is independent of in-memory download objects and database availability.
 
@@ -12,11 +12,15 @@ All **99 automated tests passed** in 3.735 seconds. These include the eight actu
 
 A fresh local server returned the sample URL with HTTP 200 and `text/csv`, before opening an app session. Clicking the download link in the browser saved `dhaga_vendor_sample.csv` without leaving the product page; its 2,969 bytes match the shipped sample, and re-parsing produced 26 rows with no errors. Uploading the downloaded CSV through the app opened a 26-product batch, including five products needing attention. The four-phase roadmap opened from the menu in the browser. Independent review also exercised the installed Streamlit static route, confirmed deployment packaging includes the file and found no remaining actionable issue in the final changes.
 
-Runtime commit, deployment and hosted download verification for this update are still pending. The completed release evidence below remains historical and does not establish deployment of this download change.
+Runtime commit: **`c86a85d70c27184dbcc3d70388a0d5af4adf9d4b`** on GitHub `origin/main`. Vercel production deployment **`dpl_Bf2z82tdDJoymKbxnLfRHr7Uau9J`** reports **READY** for that exact source commit, with [dhaga-ops.vercel.app](https://dhaga-ops.vercel.app/) assigned to it. The container build completed in 54 seconds. An initial deployment attempt was rejected as not authorized; existing account/team/project access was verified, and retrying after the CLI's normal session refresh succeeded without changing permissions or project settings.
 
-## Current MVP update — 3 October 2026
+Anonymous production checks returned HTTP 200 for `/_stcore/health` (`ok`) and [/app/static/dhaga_vendor_sample.csv](https://dhaga-ops.vercel.app/app/static/dhaga_vendor_sample.csv) (`text/csv`). The hosted sample has the same 2,969 bytes, SHA-256 `855186a368b8cee1931a5774283481004d9185b4ed5c47daf835c773c389725a`, and parses as 26 products with no errors. The live browser's download control has the intended URL, filename and native download attribute; browser saving produced the same bytes (a repeated local download received the normal `(1)` filename suffix).
 
-Current code/documentation changes remove the app password, login, sign-out and reviewer-name input. The sidebar is for navigation. New approval actions use **MVP team**, without verified personal identity or rewriting historical approvals. Overview numbers open matching product/customer queues with exact pending totals. High/low risk partition pending tickets; return/refund, ready-to-review and missing-detail subsets can overlap. After approval, **1-click reply to CX** opens the public [Freshdesk main page](https://www.freshworks.com/freshdesk/) as a demonstration; no ticket integration or customer send is performed.
+The production app opened without app sign-in and showed shared storage available. **Future scopes** opened from its menu and rendered all four phases. Customer messages displayed the fresh-example picker, preview and explicit load button. Local browser loading of the fresh disputed-delivery example produced **Needs review** and a delivery-proof follow-up, with no routine customer reply. Release checks submitted no training job, made no live-provider calls and approved or sent no customer reply. Provider quality remains outside the evidence established by these checks.
+
+## Earlier no-login and queue MVP update — 3 October 2026
+
+That release removed the app password, login, sign-out and reviewer-name input. The sidebar is for navigation. New approval actions use **MVP team**, without verified personal identity or rewriting historical approvals. Overview numbers open matching product/customer queues with exact pending totals. High/low risk partition pending tickets; return/refund, ready-to-review and missing-detail subsets can overlap. After approval, **1-click reply to CX** opens the public [Freshdesk main page](https://www.freshworks.com/freshdesk/) as a demonstration; no ticket integration or customer send is performed.
 
 Streamlit's disconnected-session retention is configured for 86,400 seconds on the running server. A restart, replacement server or new browser session can lose unsaved content. Saved database records remain recoverable. This is not automatic saving.
 
@@ -34,7 +38,7 @@ Streamlit's disconnected-session retention is configured for 86,400 seconds on t
 | Hosted product queue | Clicking **156 Products awaiting review** opened Product listings with 156 left, 156 saved waiting, **Product 1 of 156**, and the selected product's detail form loaded; no edit, save, import or generation was performed |
 | Local browser | Desktop and 390px phone layouts checked; actual approved-reply Freshdesk button opened the official homepage |
 
-The current read-only shared-work snapshot has **156 pending products** and **15 support cases: 12 pending and 3 approved**. These are current queue counts, not the historical release's 130-listing/12-case snapshot below. The shared data changed between releases and may reflect user activity; this update's hosted verification performed **no shared-record writes and no AI calls**. An AI warning already stored on a saved product was not a new provider check. This release does not establish new live-model quality or availability results. All planned operational checks for this update are complete.
+That release's read-only shared-work snapshot had **156 pending products** and **15 support cases: 12 pending and 3 approved**. These were its queue counts, not the historical release's 130-listing/12-case snapshot below or a current data total. The shared data changed between releases and may reflect user activity; that update's hosted verification performed **no shared-record writes and no AI calls**. An AI warning already stored on a saved product was not a new provider check. That release does not establish new live-model quality or availability results. All planned operational checks for that update were complete.
 
 The earlier 70-test/READY result below must not be treated as current-release evidence. All three documentation diagrams passed actual Mermaid CLI 12.0.0 rendering, and their PNG previews were visually inspected. Both original sequence failures were reproduced and isolated to unescaped semicolons. Corrected SVGs and editable definitions are recorded in [the diagram verification record](diagrams/README.md). Documentation work did not write to the shared database.
 
