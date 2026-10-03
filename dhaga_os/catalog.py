@@ -726,4 +726,4 @@ def process_catalog_records(records: list[dict[str, Any]]) -> list[dict[str, Any
 
 
 def sample_vendor_csv() -> bytes:
-    return (ROOT_DIR / "data" / "demo_vendor.csv").read_bytes()
+    return (ROOT_DIR / "static" / "dhaga_vendor_sample.csv").read_bytes()

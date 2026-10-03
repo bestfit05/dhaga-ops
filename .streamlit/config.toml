@@ -9,5 +9,7 @@ font = "sans serif"
 [server]
 headless = true
 maxUploadSize = 5
+# The public sample file must be available on every running container.
+enableStaticServing = true
 # Keep interrupted browser sessions for a day on the same running instance.
 disconnectedSessionTTL = 86400

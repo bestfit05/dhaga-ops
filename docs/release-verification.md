@@ -2,6 +2,14 @@
 
 This record distinguishes each release's local regression tests, hosted operational checks, and remaining validation.
 
+## Sample-sheet download update — verification pending
+
+The canonical supplier example moved to `static/dhaga_vendor_sample.csv`. Its bytes are unchanged: **2,969 bytes and 26 products**. Demo loading and the download now use the same file. **Download example sheet** links directly to the same-origin `/app/static/dhaga_vendor_sample.csv`, served with Streamlit static serving enabled; it is independent of in-memory download objects and database availability.
+
+All **84 automated tests passed** in 3.040 seconds. A fresh local server returned the sample URL with HTTP 200 and `text/csv`, before opening an app session. Clicking the download link in the browser saved `dhaga_vendor_sample.csv` without leaving the product page; its 2,969 bytes match the shipped sample, and re-parsing produced 26 rows with no errors. Independent review also exercised the installed Streamlit static route and confirmed deployment packaging includes the file.
+
+Runtime commit, deployment and hosted download verification for this update are still pending. The completed release evidence below remains historical and does not establish deployment of this download change.
+
 ## Current MVP update — 3 October 2026
 
 Current code/documentation changes remove the app password, login, sign-out and reviewer-name input. The sidebar is for navigation. New approval actions use **MVP team**, without verified personal identity or rewriting historical approvals. Overview numbers open matching product/customer queues with exact pending totals. High/low risk partition pending tickets; return/refund, ready-to-review and missing-detail subsets can overlap. After approval, **1-click reply to CX** opens the public [Freshdesk main page](https://www.freshworks.com/freshdesk/) as a demonstration; no ticket integration or customer send is performed.

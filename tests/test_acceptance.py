@@ -228,7 +228,11 @@ class CatalogAcceptanceTests(unittest.TestCase):
     def test_demo_copy_passes_for_supported_colors_in_the_sample_sheet(self) -> None:
         from dhaga_os.catalog import sample_vendor_csv
 
-        records, errors = read_vendor_upload_detailed(sample_vendor_csv(), "demo.csv")
+        public_sample = Path(__file__).resolve().parents[1] / "static" / "dhaga_vendor_sample.csv"
+        shipped_bytes = public_sample.read_bytes()
+        self.assertEqual(sample_vendor_csv(), shipped_bytes)
+        records, errors = read_vendor_upload_detailed(shipped_bytes, public_sample.name)
+        self.assertEqual(len(records), 26)
         processed = process_catalog_records(records)
         self.assertFalse(errors)
         copy_rows = [record for record in processed if record["generated_copy"]]

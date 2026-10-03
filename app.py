@@ -200,7 +200,12 @@ def _catalog_workspace() -> None:
             st.markdown("**Just exploring?**")
             st.caption("Try 26 sample products, including a few that need fixing.")
             process_demo = st.button("Load sample products", width="stretch")
-            st.download_button("Download example sheet", data=sample_vendor_csv(), file_name="dhaga_vendor_sample.csv", mime="text/csv", width="stretch")
+            st.markdown(
+                '<a class="sample-sheet-download" href="/app/static/dhaga_vendor_sample.csv" '
+                'download="dhaga_vendor_sample.csv" target="_self">Download example sheet</a>',
+                unsafe_allow_html=True,
+            )
+            st.caption("CSV file · 26 sample products")
         with st.expander("What should my sheet include?"):
             st.write("Use columns for supplier code (SKU), product name, color and fabric. Add sizes, care, fit, price and occasions when available. Common column names are recognized automatically.")
             st.caption("A missing detail stays visible for you to fix. The app keeps readable rows if another row has an error.")

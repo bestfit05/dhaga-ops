@@ -6,7 +6,7 @@ The application is deployed at [dhaga-ops.vercel.app](https://dhaga-ops.vercel.a
 
 ## Start with one task
 
-**Product listings:** Load the sample products or upload a supplier sheet. Search the review queue, filter products needing attention, and open one product at a time. Compare the supplier's original details, fix missing fields, review the listing text, then choose **Save draft** or **Approve for team**. Use **Saved approvals** to download completed work. Reuploading the identical sheet reopens its saved versions, including earlier edits and approvals.
+**Product listings:** Load the 26 sample products, choose **Download example sheet** to see the expected CSV format, or upload a supplier sheet. Search the review queue, filter products needing attention, and open one product at a time. Compare the supplier's original details, fix missing fields, review the listing text, then choose **Save draft** or **Approve for team**. Use **Saved approvals** to download completed work. Reuploading the identical sheet reopens its saved versions, including earlier edits and approvals.
 
 **Customer messages:** Paste the customer's message or choose a sample, then select **Check order & prepare reply**. Review the order facts beside the editable reply. Choose **Save reply draft** to return later, or confirm your review and **Approve for team**. Missing identifiers show a request for information. Cancellation, disputed delivery, unmatched details, and unavailable tracking give a concrete follow-up step. After approval, **1-click reply to CX** opens the [Freshdesk main page](https://www.freshworks.com/freshdesk/) as a demo handoff. Copy the approved reply into your usual support tool; the link does not send it or open a connected ticket.
 
@@ -76,6 +76,8 @@ Set `DATABASE_URL` to a managed PostgreSQL connection string for shared storage.
 
 The deployment configuration uses the repository's `Dockerfile.vercel`. Use the Vercel project already linked to this repository. Streamlit's `disconnectedSessionTTL = 86400` retains disconnected sessions for up to 24 hours; this is separate from durable database saving and does not survive server replacement.
 
+The example-sheet download uses the same-origin static URL `/app/static/dhaga_vendor_sample.csv`, enabled by `server.enableStaticServing = true`. The canonical file is `static/dhaga_vendor_sample.csv`: 2,969 bytes and 26 synthetic products, also used by **Load sample products**. Downloading the sheet does not depend on an in-memory download object or the database. Deployment verification of this download update is tracked separately in the [release record](docs/release-verification.md).
+
 ## When something needs attention
 
 | What you see | What to do |
@@ -91,7 +93,7 @@ The deployment configuration uses the repository's `Dockerfile.vercel`. Use the 
 
 - Carrier tracking uses sample JSON records, not live courier APIs.
 - The four policy examples are not Dhaga-approved policy. Confirm their wording and rules with the CX owner before any pilot.
-- Data in `data/` is synthetic. Replace it with authorized, client-approved test data before handling real customer information.
+- Data in `data/` and the supplier sheet in `static/` are synthetic. Replace them with authorized, client-approved test data before handling real customer information.
 - “Approve” records an internal staging or agent handoff decision. It never publishes a listing or sends a customer response.
 - There is no app authentication or person-level approval identity. Audit actions use **MVP team**; this demo does not provide individual accountability or role-based access.
 - The Freshdesk button opens a public product page only. There is no connected support ticket, automatic reply, or customer send.
@@ -108,7 +110,8 @@ dhaga_os/llm.py              Structured Gemini boundary
 dhaga_os/db.py               SQLAlchemy tables, approval and recovery queries
 dhaga_os/queues.py           Shared customer queue filters and exact overview counts
 dhaga_os/exports.py          Unicode CSV output and formula-like text handling
-data/                        Synthetic products, orders and policies
+data/                        Synthetic order records, color dictionary and policies
+static/dhaga_vendor_sample.csv Canonical 26-product sample for loading and downloading
 docs/product-discovery-and-prd.md  Corrective discovery, PRD, gaps and pilot plan
 docs/architecture.md         High-level design, data flow and database schema
 docs/build-note.md           Model/code choices, patterns, cost and failure learning
