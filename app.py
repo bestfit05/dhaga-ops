@@ -23,6 +23,7 @@ from dhaga_os.catalog import (
 )
 from dhaga_os.config import get_settings
 from dhaga_os.cx import _deterministic_reply_check, demo_order_ids, demo_phone_numbers, demo_tickets, process_customer_ticket
+from dhaga_os.cx_examples import load_cx_examples
 from dhaga_os.db import (
     approve_listing,
     approve_support_case,
@@ -601,6 +602,14 @@ def _cx_workspace() -> None:
                     selected_example = st.selectbox("Scenario", [example["scenario"] for example in examples])
                     selected = next(example for example in examples if example["scenario"] == selected_example)
                     st.button("Load example message", on_click=_load_example, args=(selected["message"],), width="stretch")
+                with st.expander("8 fresh message examples"):
+                    st.caption("Try tracking, returns, cancellation, missing details or a disputed delivery. Choosing an example keeps your message unchanged until you load it.")
+                    fresh_examples = load_cx_examples()
+                    selected_fresh_id = st.selectbox("Fresh message example", [example["id"] for example in fresh_examples], format_func=lambda example_id: next(example["scenario"] for example in fresh_examples if example["id"] == example_id), key="fresh-cx-example")
+                    fresh_example = next(example for example in fresh_examples if example["id"] == selected_fresh_id)
+                    st.write(fresh_example["message"])
+                    st.button("Load this fresh message", key="load-fresh-cx-example", on_click=_load_example, args=(fresh_example["message"],), width="stretch")
+                    st.caption("Loading replaces the current message. These are practice examples; a teammate still needs to review each reply.")
                 st.caption("Sample orders: " + ", ".join(demo_order_ids()[:4]) + ". Courier data is illustrative.")
     if submitted:
         if not ticket_text.strip():
@@ -846,6 +855,115 @@ def _overview_workspace() -> None:
         st.write("4. Download completed work from Saved approvals, or open Freshdesk from an approved reply to demonstrate the next step.")
 
 
+def _future_scopes_workspace() -> None:
+    _page_header(
+        "PRODUCT ROADMAP",
+        "Future scopes",
+        "A phased plan for the next version, based on the product discovery and PRD.",
+    )
+    st.info("These are proposed next steps. Each phase needs the team's evidence and agreement before moving forward; no delivery dates are committed.")
+    with st.container(border=True):
+        st.subheader("The MVP you can use today")
+        st.write("Prepare product listings and customer replies, compare source facts, save drafts, and approve work for the team.")
+        st.caption("Orders and policies are examples. The Freshdesk link demonstrates a handoff; it does not send a reply. The phases below describe future development.")
+
+    phases = (
+        {
+            "title": "Prove the basics with the team",
+            "goal": "Make sure operators can finish the core tasks safely, without someone explaining the app.",
+            "features": (
+                "Observe support and listing work to confirm where people lose time.",
+                "Confirm approved support rules, product attributes, colors, size charts and exception owners.",
+                "Check realistic English, Hinglish and Hindi messages, source accuracy, failure recovery, phone layouts and keyboard use.",
+            ),
+            "dependencies": (
+                "Arpita and Vivek provide representative, permitted messages and supplier sheets.",
+                "Arpita and Faizan approve support policies; Vivek confirms listing definitions.",
+            ),
+            "criteria": (
+                "Client owners confirm the rules and who handles exceptions.",
+                "Proposed usability check: at least 4 of 5 nontechnical operators finish the core tasks without coaching. Agree this check with the team first.",
+                "The reviewed test set has no wrong-order replies or unsupported promises, and recovery/accessibility checks are recorded.",
+            ),
+            "source": "PRD sections 4–7: task requirements, remaining gaps, usability checks and client decisions.",
+        },
+        {
+            "title": "Connect trusted sources",
+            "goal": "Bring approved real information into the same review workflow.",
+            "features": (
+                "Read order and courier updates with clear source dates, missing facts and stale-update warnings.",
+                "Use client-approved, versioned support policies with a named owner.",
+                "Start with read-only Freshdesk tickets and agree how a reviewed handoff reaches its owner.",
+                "Give reviewers individual access and agree which customer/supplier data can be kept or deleted.",
+            ),
+            "dependencies": (
+                "Dev and the data owner approve credentials, access, data handling and the AI service's rules for customer data.",
+                "Operations confirms order/phone matching, courier freshness, delivery-date meaning and escalation responsibilities.",
+            ),
+            "criteria": (
+                "Real-source matching, missing/stale updates and failure recovery pass agreed checks.",
+                "Policies, reviewer access, how long data is kept, and handoff ownership are approved and tested.",
+                "The first integration remains read-only, with human review before any external action.",
+            ),
+            "source": "PRD sections 5 and 7: production dependencies and the read-only Freshdesk starting point.",
+        },
+        {
+            "title": "Run a measured, supervised pilot",
+            "goal": "Find out whether the app saves useful work without reducing customer-care or listing quality.",
+            "features": (
+                "Compare today's workflow with the app, including checking, editing, review and handoff time.",
+                "Compare AI drafts with simple templates using reviewed examples; measure failures, waiting time and actual cost.",
+                "Track support handling time and first-response time separately, plus repeat contacts or satisfaction where available.",
+                "Track supplier-sheet-to-approved-draft time and product corrections separately from the whole listing cycle.",
+            ),
+            "dependencies": (
+                "Arpita, Vivek and Karthik agree baselines, measurement definitions and a permitted pilot group.",
+                "Dev and the function leads name who monitors failures and owns exceptions after the build team leaves.",
+            ),
+            "criteria": (
+                "Proposed support target: at least 30% less median active handling time, with no quality regression. Arpita must agree the target first.",
+                "Wrong orders or unsupported promises block release; reviewed outcomes and correction rates must be recorded.",
+                "Report measured listing-preparation results, model cost, waiting times and failures against team-agreed limits.",
+            ),
+            "source": "PRD sections 1, 6 and 7: the main assumption, pilot measurements and sustainable ownership.",
+        },
+        {
+            "title": "Choose the next problem from evidence",
+            "goal": "Expand only when a separate business problem has a clear owner and a testable improvement.",
+            "features": (
+                "Fit-related returns — Neha: label return reasons and verify supplier size charts before testing changes.",
+                "Cash-on-delivery returns — Faizan: investigate causes and test safe operational changes.",
+                "Business analysis — Karthik: choose a repeated question tied to a decision and verify its data and answers.",
+                "Retention and acquisition cost — Ritu and Sameer: establish the causes before proposing an intervention.",
+            ),
+            "dependencies": (
+                "Each owner provides permitted data, reliable labels/definitions and evidence of an actionable cause.",
+                "Client owners revisit the PRD ranking using the earlier phases' findings.",
+            ),
+            "criteria": (
+                "Each chosen problem has an owner, a baseline, a bounded trial and a way to measure the result.",
+                "Require measured evidence before claiming lower returns, delivery losses or acquisition cost, or better retention.",
+            ),
+            "source": "PRD sections 2, 3 and 7: ranked alternatives, evidence gaps and decisions still needed.",
+        },
+    )
+    st.subheader("Phase by phase")
+    for number, phase in enumerate(phases, start=1):
+        with st.expander(f"Phase {number} · {phase['title']}", expanded=number == 1):
+            st.write(phase["goal"])
+            work, readiness = st.columns(2, gap="large")
+            with work:
+                st.markdown("**What we will build or improve**")
+                st.markdown("\n".join(f"- {item}" for item in phase["features"]))
+                st.markdown("**What we need first**")
+                st.markdown("\n".join(f"- {item}" for item in phase["dependencies"]))
+            with readiness:
+                st.markdown("**Ready to move on when**")
+                st.markdown("\n".join(f"- {item}" for item in phase["criteria"]))
+            st.caption(phase["source"])
+    st.caption("Phase order is a proposed plan, not a release calendar. The usability and handling-time numbers are proposed PRD checks, not achieved results.")
+
+
 prepare_workspace_widget(st.session_state)
 with st.sidebar:
     st.markdown('<div class="brand"><div class="brand-mark">d.</div><div><div class="brand-name">dhaga ops</div><div class="brand-caption">A calmer way to work.</div></div></div>', unsafe_allow_html=True)
@@ -869,5 +987,7 @@ elif workspace == "Product listings":
     _catalog_workspace()
 elif workspace == "Customer messages":
     _cx_workspace()
+elif workspace == "Future scopes":
+    _future_scopes_workspace()
 else:
     _exports_workspace()

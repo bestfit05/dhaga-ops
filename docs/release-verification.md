@@ -2,11 +2,15 @@
 
 This record distinguishes each release's local regression tests, hosted operational checks, and remaining validation.
 
-## Sample-sheet download update — verification pending
+## Sample download, Future scopes and fresh-message update — hosted verification pending
 
 The canonical supplier example moved to `static/dhaga_vendor_sample.csv`. Its bytes are unchanged: **2,969 bytes and 26 products**. Demo loading and the download now use the same file. **Download example sheet** links directly to the same-origin `/app/static/dhaga_vendor_sample.csv`, served with Streamlit static serving enabled; it is independent of in-memory download objects and database availability.
 
-All **84 automated tests passed** in 3.040 seconds. A fresh local server returned the sample URL with HTTP 200 and `text/csv`, before opening an app session. Clicking the download link in the browser saved `dhaga_vendor_sample.csv` without leaving the product page; its 2,969 bytes match the shipped sample, and re-parsing produced 26 rows with no errors. Independent review also exercised the installed Streamlit static route and confirmed deployment packaging includes the file.
+The **Future scopes** menu shows four proposed PRD-derived phases, with prerequisites and checks before proceeding. Customer messages includes the eight exact fresh synthetic examples, with a preview and an explicit load action. Eligible intent/reply prompts receive identifier-free patterns and handling labels. This is prompt adaptation, not weight training or a fine-tuned model; see the [dataset record](ai-example-dataset.md).
+
+All **99 automated tests passed** in 3.735 seconds. These include the eight actual CX service routes, separate paraphrases, preserved billing gates and literal identifiers, delivery-dispute wording without confirmation-email/coupon/refund false matches in the added patterns, the `latest`/`late` sentiment correction, invalid input and unsupported-promise approval checks. UI checks cover read-only roadmap navigation, preserved unsubmitted text and explicit loading of fresh examples. Model-boundary checks use mocks and do not establish live Gemini accuracy.
+
+A fresh local server returned the sample URL with HTTP 200 and `text/csv`, before opening an app session. Clicking the download link in the browser saved `dhaga_vendor_sample.csv` without leaving the product page; its 2,969 bytes match the shipped sample, and re-parsing produced 26 rows with no errors. Uploading the downloaded CSV through the app opened a 26-product batch, including five products needing attention. The four-phase roadmap opened from the menu in the browser. Independent review also exercised the installed Streamlit static route, confirmed deployment packaging includes the file and found no remaining actionable issue in the final changes.
 
 Runtime commit, deployment and hosted download verification for this update are still pending. The completed release evidence below remains historical and does not establish deployment of this download change.
 

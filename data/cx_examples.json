@@ -1,0 +1,82 @@
+[
+  {
+    "id": "tracking_update",
+    "scenario": "Tracking update · English",
+    "message": "Hi, could you share the latest tracking update for order 84922?",
+    "intent": "WISMO",
+    "expected_status": "draft_ready",
+    "expected_order_id": "84922",
+    "requires_human_escalation": false,
+    "handling_instruction": "Look up the customer's identifier and use only the current verified tracking facts."
+  },
+  {
+    "id": "hinglish_tracking",
+    "scenario": "Tracking update · Hinglish",
+    "message": "Order 84920 ka latest update bata do. Mujhe delivery ka wait hai.",
+    "intent": "WISMO",
+    "expected_status": "draft_ready",
+    "expected_order_id": "84920",
+    "requires_human_escalation": false,
+    "handling_instruction": "Explain the current verified tracking update in the customer's language; never invent an arrival date."
+  },
+  {
+    "id": "return_size",
+    "scenario": "Return process · size issue",
+    "message": "Order 84930 ka size loose hai. Isko return karne ka process batao.",
+    "intent": "RETURN_REQUEST",
+    "expected_status": "draft_ready",
+    "expected_order_id": "84930",
+    "requires_human_escalation": true,
+    "handling_instruction": "Explain only supplied return policy; a teammate must check eligibility before any refund or exchange commitment."
+  },
+  {
+    "id": "cancellation_check",
+    "scenario": "Cancellation eligibility · manual check",
+    "message": "I accidentally placed order 84921. Can your team check whether cancellation is possible?",
+    "intent": "CANCELLATION",
+    "expected_status": "needs_review",
+    "expected_order_id": "84921",
+    "requires_human_escalation": true,
+    "handling_instruction": "Ask a teammate to check cancellation options; do not claim the order was cancelled."
+  },
+  {
+    "id": "unknown_order",
+    "scenario": "Unknown order · no matching record",
+    "message": "Can you locate order 68417? I cannot find its tracking details.",
+    "intent": "WISMO",
+    "expected_status": "not_found",
+    "expected_order_id": "68417",
+    "requires_human_escalation": false,
+    "handling_instruction": "An identifier with no matching record needs corrected details; never borrow another order's facts."
+  },
+  {
+    "id": "missing_identifier",
+    "scenario": "Package location · order number missing",
+    "message": "My package hasn’t arrived. Could someone check its location?",
+    "intent": "WISMO",
+    "expected_status": "needs_identifier",
+    "expected_order_id": null,
+    "requires_human_escalation": false,
+    "handling_instruction": "Ask for the order number or linked phone before making any delivery claim."
+  },
+  {
+    "id": "conflicting_identifiers",
+    "scenario": "Two order numbers · confirmation needed",
+    "message": "My receipt shows order 84922, but please check order 84920 instead.",
+    "intent": "WISMO",
+    "expected_status": "needs_review",
+    "expected_order_id": null,
+    "requires_human_escalation": true,
+    "handling_instruction": "Ask which order to check when identifiers conflict; do not silently choose one."
+  },
+  {
+    "id": "disputed_delivery",
+    "scenario": "Marked delivered · nobody received it",
+    "message": "Order 84924 is marked delivered, but nobody at home received it.",
+    "intent": "WISMO",
+    "expected_status": "needs_review",
+    "expected_order_id": "84924",
+    "requires_human_escalation": true,
+    "handling_instruction": "When a delivered scan is disputed, request a teammate's proof-of-delivery check before preparing a customer reply."
+  }
+]

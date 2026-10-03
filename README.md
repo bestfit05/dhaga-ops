@@ -12,6 +12,8 @@ The application is deployed at [dhaga-ops.vercel.app](https://dhaga-ops.vercel.a
 
 **Overview:** Click a number to open its matching queue. Products awaiting review excludes approved listings; tickets pending reply excludes approved replies. High-risk and low-risk queues together cover every pending ticket. Return/refund, ready-to-review and missing-order-detail counts are subsets that can overlap those risk queues. High risk means extra attention is needed, not a fraud prediction; low risk still requires review.
 
+**Future scopes:** Open the menu's roadmap to see four proposed phases: validate the basics with operators, connect trusted sources, run a measured supervised pilot, and choose the next business problem from evidence. Each phase lists its goal, work, dependencies and checks before moving on. It follows the [discovery and PRD](docs/product-discovery-and-prd.md), without committed dates or claims that future features are already available.
+
 Save before leaving an editor. Reopen product drafts or customer messages from their saved-work section. Reviews are recorded automatically as **MVP team**, without verified personal identity. A disconnected Streamlit session is retained for up to 24 hours while its server remains running. A server restart or new browser session can lose unsaved content; saved database drafts and approvals can be recovered.
 
 ## What you can do
@@ -67,6 +69,8 @@ In live mode, the gateway may send an unfamiliar color, a supplier's free-text p
 Google currently lists free tiers for both configured models, with quotas and data-use conditions. Free-tier prompts and responses may improve Google's products; use synthetic examples for the demo. See [current pricing and data-use details](https://ai.google.dev/gemini-api/docs/pricing) and the explicitly illustrative [cost line](docs/build-note.md).
 
 The gateway calls Google's Gemini API directly. `OPENROUTER_API_KEY` is not read by this code. Demo mode is the default, so the server still starts without a model key; if live mode is selected without a key, the UI explains that Gemini is unavailable. Do not put keys in source code or commit `.env`.
+
+In Customer messages, expand **8 fresh message examples**, choose a scenario and explicitly select **Load this fresh message** to replace the editor's message. Selecting a scenario alone preserves your text. The [example set](docs/ai-example-dataset.md) documents eight synthetic labeled messages used for eligible prompt examples and regression checks. This is example-based prompt adaptation; it does not change model weights or establish a fine-tuned model.
 
 For Vercel, set `MODEL_MODE=live` and `GEMINI_API_KEY` in the project's encrypted Environment Variables, then redeploy. Keep the key out of GitHub and browser-side code.
 

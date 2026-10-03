@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import MutableMapping
 
 
-WORKSPACES = ("Overview", "Product listings", "Customer messages", "Saved approvals")
+WORKSPACES = ("Overview", "Product listings", "Customer messages", "Saved approvals", "Future scopes")
 WORKSPACE_KEY = "workspace_v2"
 PENDING_WORKSPACE_KEY = "pending_workspace"
 LEGACY_WORKSPACE_KEY = "workspace"
